@@ -17,6 +17,7 @@ import {
   checkSafetyFlags,
   computeAdjustedEstimate,
   computeMetrics,
+  findNextSession,
   generatePlan,
   getLastCompletedLog,
   type Analysis,

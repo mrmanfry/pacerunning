@@ -1,89 +1,81 @@
 
 
-# Piano: Stima 10K più seria (modello Riegel + normalizzazione per tipo)
+# Piano: distanza gara configurabile (5K / 10K / 21K / personalizzata)
 
-## Il problema
+## Risposta breve
 
-L'attuale `computeAdjustedEstimate` fa una proiezione ingenua: prende il pace di una sessione qualsiasi (anche un lento a 9'/km), applica una piccola correzione FC, e moltiplica per 10. Risultato: se hai corso lento, ti stima ~75-85' sui 10K — assurdo, perché in lento NON corri a ritmo gara.
+**Fattibile, di media complessità.** Non bisogna riscrivere il piano corsa: la generazione del piano (`generatePlan`) lavora su settimane, frequenza e zone FC, NON sulla distanza gara. Quello che cambia è:
 
-Mancano tre cose:
-1. **Conversione tra distanze** (un pace tenuto per 5km è diverso da quello su 10km).
-2. **Normalizzazione per tipo di sessione**: un lento a FC 75% e un medio a FC 88% rivelano fitness diverse, non vanno trattati uguale.
-3. **Pesatura intelligente**: dare più peso a sessioni recenti, vicine al ritmo gara, e di durata significativa.
+1. **Modello dati** → aggiungere `raceDistance` (km) al profilo.
+2. **Matematica della stima** → 4-5 punti dove "10" è hardcoded vanno parametrizzati con `D`.
+3. **UI** → onboarding, dashboard, schermata analisi e prompt AI con la distanza scelta.
+4. **Template piano** → adattamento minore di durate sessioni "lungo" e "ritmo gara".
 
-## Il nuovo modello
+Tempo stimato: ~1 sessione di lavoro media. Niente migrazione distruttiva (campo opzionale con default 10).
 
-### Step 1 — Stima il **pace gara equivalente** di ogni sessione
+## Cosa cambia (dettaglio tecnico)
 
-Per ogni log non saltato, due correzioni indipendenti:
+### 1. Dati & onboarding
 
-**A. Correzione per intensità (FC vs ritmo gara)**
-Il ritmo gara 10K corrisponde a circa **88-92% FCmax** (zona soglia). Se hai corso al 75% FCmax (lento), il pace della sessione va "scalato" a quello che terreresti al 90%:
+- **`Profile`** (`src/lib/pace-engine.ts`): aggiungo `raceDistance: number` (km, default 10).
+- **DB `profiles`**: nuova colonna `race_distance numeric NOT NULL DEFAULT 10`.
+- **`Onboarding.tsx`** step 3: nuovo `SegmentedControl` con preset `5 / 10 / 21.097 / Altro` (con input numerico se "Altro"). Etichette aggiornate ("TEMPO RECENTE SU {D} KM", "TEMPO A CUI PUNTERESTI SU {D} KM").
+- **`pace-repository.ts`**: load/save `raceDistance`.
 
-```text
-hrRaceTarget = hrMax * 0.90
-ratio = hrRaceTarget / hrAvgSessione
-paceAtRaceHR = paceSessione / ratio^k
+### 2. Motore di stima — generalizzazione 10 → D
+
+In `pace-engine.ts`, sostituire ovunque `10` con `profile.raceDistance`:
+
+- `paceFromTime(totalMinutes, distance)`: `paceMin = totalMinutes / distance` (oggi `/10`).
+- `singleSessionEstimate(log, hrMax, raceDist)`:
+  - `paceAtRaceHR * raceDist * (raceDist / log.distance)^(RIEGEL_K - 1)` (Riegel resta valida per qualsiasi distanza, fino a ~mezza maratona è molto affidabile; sopra perde un po' ma resta lo standard del settore).
+  - Per la maratona (42K), Riegel sovrastima leggermente; aggiungerò un fattore correttivo morbido `+2%` solo se `raceDist > 30`.
+- `analyzeWorkout` prediction (`* 10` → `* raceDist`).
+- `computeMetrics.targetPaceMin = profile.targetTime / raceDist`.
+- **HR target gara**: `0.90 * hrMax` resta corretto per 5K-10K-21K. Per maratona scenderebbe a ~0.85; gestito con piccola tabella se `raceDist >= 30`.
+
+### 3. Generazione piano (`generatePlan`)
+
+Sorpresa positiva: **quasi nulla da cambiare**. Il piano già si basa su zone FC e settimane. Aggiusto solo:
+
+- **Sessione "Lungo lento"**: target durata = `max(60, raceDist * 7)` minuti (così su 5K resta 60', su 10K ~70', su 21K sale a ~90-100'). Cap a 120'.
+- **Sessione "Ritmo gara"**: blocchi commisurati. Su 5K → ripetute più brevi e veloci; su 21K → ritmo gara più lungo e meno acuto. Per ora mantengo il template attuale e adatto solo durate; non creo template separati per distanza (sarebbe un round successivo se l'utente vuole piani veramente specifici 5K vs 21K).
+
+### 4. UI
+
+- **Dashboard.tsx**: `TEMPO IPOTETICO {D} KM` (oggi `10 KM`); banda e disclaimer parlano della distanza scelta.
+- **AnalysisScreen.tsx**: `STIMA INDICATIVA {D}K`.
+- **SessionDetail.tsx**: nessun cambio (parla di zone, non di distanza gara).
+- **Edge function `analyze-workout`**: prompt riceve `raceDistance` e usa quella nelle frasi del coach ("sui {D}K", "ritmo gara per {D}K").
+
+### 5. Migrazione DB
+
+```sql
+ALTER TABLE public.profiles
+  ADD COLUMN race_distance numeric NOT NULL DEFAULT 10;
 ```
 
-Dove `k ≈ 1.06` (relazione empirica pace↔FC, derivata da Karvonen). Quindi un lento 9'/km a 75% FCmax → equivalente ~7'00"/km a 90% FCmax. Più onesto.
+I profili esistenti restano coerenti (10K). Nessuna logica retro-compatibilità extra: i log storici non dipendono dalla distanza gara.
 
-**B. Correzione per distanza (formula di Riegel)**
-La formula standard atletica per estrapolare tempi tra distanze:
+## Cosa NON faccio in questo round
 
-```text
-T2 = T1 * (D2 / D1)^1.06
-```
+- **Template piano dedicati per distanza** (es: piano 5K diverso da piano 21K). Il template attuale, con le durate "lungo" parametrizzate, copre dignitosamente 5K-21K. Per maratona vera servirebbe un template a sé — lo lascio fuori scope.
+- **Scelta unità di misura** (miglia). Resta tutto in km.
+- **Multi-gara** (più gare in calendario). Una gara alla volta, come oggi.
 
-Esempio: 5km in 30' → 10km in `30 * (10/5)^1.06 = 62.5'`. NON `30 * 2 = 60'`.
+## File toccati (riepilogo)
 
-### Step 2 — Combina le due correzioni
+- `src/lib/pace-engine.ts` — parametrizzare `10` → `raceDistance`, adattare `generatePlan` (durata lungo).
+- `src/components/pace/Onboarding.tsx` — nuovo selettore distanza + etichette dinamiche.
+- `src/components/pace/Dashboard.tsx` — etichette dinamiche.
+- `src/components/pace/AnalysisScreen.tsx` — etichette dinamiche.
+- `src/lib/pace-repository.ts` — load/save `raceDistance`.
+- `src/pages/Index.tsx` — propagazione `raceDistance` dove serve.
+- `supabase/functions/analyze-workout/index.ts` — prompt usa la distanza.
+- Nuova migrazione SQL — colonna `race_distance` su `profiles`.
 
-Per ogni sessione: `estimated10K = paceAtRaceHR * 10 * (10 / distanza)^0.06`. (Il termine Riegel diventa piccolo quando la distanza è già vicina a 10km, grande quando è lontana.)
+## Rischi
 
-### Step 3 — Pesa le sessioni
-
-Non tutte le sessioni hanno lo stesso valore predittivo. Peso = prodotto di tre fattori:
-
-- **Tipo**: `quality` 1.0, `medium` 0.9, `long` 0.8, `easy` 0.4. I lenti contano poco perché la correzione FC ha più incertezza a basse intensità.
-- **Distanza**: sessioni < 3km pesano 0.5, ≥ 5km pesano 1.0 (più la sessione è lunga, più l'estrapolazione Riegel è affidabile).
-- **Recency**: sessioni delle ultime 2 settimane peso 1.0, fino a 4 settimane 0.7, oltre 0.4.
-
-### Step 4 — Confidenza & banda
-
-Calcolo media pesata + deviazione standard delle stime:
-- Se ho < 3 sessioni "buone" (peso ≥ 0.5) → stima = `target dichiarato` (non abbastanza dati, mostro "RACCOGLIENDO DATI").
-- Se ho ≥ 3 sessioni → stima = media pesata, con un range ±σ.
-- Blendo ancora con il target dichiarato (peso 20% target, 80% dati) per stabilità nei primi log.
-
-### Step 5 — Esponi la confidenza in UI
-
-Nel Dashboard, sotto "STIMA INDICATIVA", aggiungo:
-- **Valore centrale** (es. ~58')
-- **Banda**: "tra 55' e 62'" (se ho dati sufficienti)
-- **Etichetta confidenza**: "BASSA" (< 3 sess. buone), "MEDIA" (3-5), "ALTA" (≥ 6 con almeno una quality/medium recente).
-- Se confidenza BASSA, scrivo "Servono ancora 2-3 sessioni di qualità per una stima affidabile" invece di un numero finto.
-
-## File toccati
-
-- **`src/lib/pace-engine.ts`**:
-  - Riscrivo `computeAdjustedEstimate(logs, profile)` con il modello sopra.
-  - Aggiungo `computeEstimateDetail(logs, profile): { estimate, low, high, confidence: 'low'|'medium'|'high', usableSessions: number }`.
-  - Le stime ora ritornano anche metadata, non solo un numero.
-
-- **`src/lib/pace-repository.ts`** + **migrazione DB**: aggiungo colonne opzionali `estimate_low`, `estimate_high`, `estimate_confidence` su `plans` per persistere la banda. (Compatibile, default null.)
-
-- **`src/pages/Index.tsx`**: usa `computeEstimateDetail` invece di `computeAdjustedEstimate`, salva i nuovi campi nel piano.
-
-- **`src/components/pace/Dashboard.tsx`**: rendering nuova UI stima (valore + banda + chip confidenza, oppure messaggio "raccogliendo dati").
-
-- **`src/components/pace/AnalysisScreen.tsx`** (sezione "STIMA INDICATIVA"): stesso pattern (banda + confidenza), e disclaimer aggiornato che spieghi in 1 riga il metodo ("Stima basata su Riegel + normalizzazione FC, pesata su sessioni recenti").
-
-- **`supabase/functions/analyze-workout/index.ts`**: il prompt riceve anche `confidence` e la banda, così il coach può dire "siamo ancora in fase di calibrazione" invece di affermare numeri con sicurezza falsa quando ho 1-2 log.
-
-## Cosa NON faccio
-
-- Niente VO2max o modelli fisiologici complessi (Daniels VDOT) — Riegel + correzione FC è il giusto compromesso onestà/semplicità.
-- Niente cambio del piano basato sulla nuova stima (resta a parte: l'adattamento del piano è già gestito dal `planAdjustment` del coach).
-- Niente storico delle stime (potrebbe arrivare in un round successivo come grafico trend).
+- **Riegel su 21K e oltre**: l'errore cresce; è il limite intrinseco del modello, non risolvibile senza VDOT/Daniels (escluso dal piano precedente).
+- **Utenti esistenti**: nessun impatto, default 10 = comportamento attuale.
 

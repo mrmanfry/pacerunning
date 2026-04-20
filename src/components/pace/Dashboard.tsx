@@ -28,7 +28,7 @@ export function Dashboard({
   const completedCount = logs.length;
   const totalSessions = plan.weeks.reduce((a, w) => a + w.sessions.length, 0);
   const nextSession = findNextSession(plan, logs);
-  const displayTime = plan.adjustedEstimate || profile.targetTime;
+  
 
   // Real days remaining from raceDate
   const today = new Date().toISOString().slice(0, 10);

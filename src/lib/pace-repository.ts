@@ -49,6 +49,7 @@ export async function loadProfile(userId: string): Promise<Profile | null> {
     daysUntilRace: data.days_until_race,
     raceDate: (data as any).race_date ?? null,
     level: data.level as Profile["level"],
+    raceDistance: (data as any).race_distance != null ? Number((data as any).race_distance) : 10,
   };
 }
 
@@ -64,6 +65,7 @@ export async function saveProfile(userId: string, p: Profile) {
     days_until_race: p.daysUntilRace,
     race_date: p.raceDate ?? null,
     level: p.level,
+    race_distance: p.raceDistance ?? 10,
   };
   const { error } = await supabase.from("profiles").upsert(row, { onConflict: "id" });
   if (error) throw error;

@@ -336,6 +336,14 @@ export function generatePlan(profile: Profile): Plan {
   const days = profile.daysUntilRace;
   const totalWeeks = Math.max(1, Math.floor(days / 7));
 
+  // "Lungo lento" duration scales with race distance (capped 60-120').
+  // Approx: 5K → 60', 10K → 70', 21K → ~95-105', marathon → 120'.
+  const raceDist = profile.raceDistance || 10;
+  const baseLong = Math.max(60, Math.min(120, Math.round(raceDist * 7)));
+  const longDuration = baseLong;
+  const longBuildDuration = Math.min(120, baseLong + 10);
+  const longIntensityDuration = Math.min(120, baseLong + 5);
+
   const baseWeek = (): Week => ({
     theme: "BASE + ATTIVAZIONE",
     sessions: [
@@ -367,10 +375,10 @@ export function generatePlan(profile: Profile): Plan {
       {
         name: "Lungo lento",
         type: "long",
-        duration: 70,
+        duration: longDuration,
         targetHR: `${z2[0]}-${z2[1] + 5}`,
         blocks: [
-          `Circa 70' di corsa continua a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
+          `Circa ${longDuration}' di corsa continua a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
           "Idratati regolarmente se hai la bottiglia",
           "Se serve camminare brevi tratti, va bene",
         ],
@@ -406,9 +414,9 @@ export function generatePlan(profile: Profile): Plan {
       {
         name: "Lungo lento",
         type: "long",
-        duration: 80,
+        duration: longBuildDuration,
         targetHR: `${z2[0]}-${z2[1] + 5}`,
-        blocks: [`Circa 80' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`, "Porta acqua se fa caldo"],
+        blocks: [`Circa ${longBuildDuration}' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`, "Porta acqua se fa caldo"],
       },
     ],
   });
@@ -442,10 +450,10 @@ export function generatePlan(profile: Profile): Plan {
       {
         name: "Lungo lento",
         type: "long",
-        duration: 75,
+        duration: longIntensityDuration,
         targetHR: `${z2[0]}-${z2[1] + 5}`,
         blocks: [
-          `Circa 75' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
+          `Circa ${longIntensityDuration}' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
           "Possibile inserire 5' di ritmo medio verso metà percorso se le gambe rispondono bene",
         ],
       },

@@ -459,6 +459,7 @@ const Index = () => {
           <AnalysisScreen
             analysis={analysis}
             loading={analysisLoading}
+            raceDistance={profile?.raceDistance}
             onContinue={() => setScreen("dashboard")}
             onAcceptAdjustment={acceptAdjustment}
             onIgnoreAdjustment={ignoreAdjustment}

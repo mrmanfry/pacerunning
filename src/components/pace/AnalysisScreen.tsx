@@ -12,12 +12,13 @@ const iconMap = {
 interface Props {
   analysis: Analysis | null;
   loading?: boolean;
+  raceDistance?: number;
   onContinue: () => void;
   onAcceptAdjustment?: () => void;
   onIgnoreAdjustment?: () => void;
 }
 
-export function AnalysisScreen({ analysis, loading, onContinue, onAcceptAdjustment, onIgnoreAdjustment }: Props) {
+export function AnalysisScreen({ analysis, loading, raceDistance, onContinue, onAcceptAdjustment, onIgnoreAdjustment }: Props) {
   if (loading) {
     return (
       <div className="min-h-screen bg-ink text-paper flex flex-col items-center justify-center grain px-6">
@@ -148,7 +149,7 @@ export function AnalysisScreen({ analysis, loading, onContinue, onAcceptAdjustme
         {analysis.prediction && !showAdjust && (
           <div className="bg-signal text-ink rounded-3xl p-5">
             <div className="mono-font text-xs tracking-widest mb-2 flex items-center justify-between gap-2">
-              <span>STIMA INDICATIVA 10K</span>
+              <span>STIMA INDICATIVA {formatRaceDistanceLabel(raceDistance)}</span>
               {analysis.prediction.confidence && (
                 <span className="px-2 py-0.5 rounded-full bg-ink text-signal text-[9px] tracking-wider">
                   CONFIDENZA {analysis.prediction.confidence === "high" ? "ALTA" : analysis.prediction.confidence === "medium" ? "MEDIA" : "BASSA"}
@@ -218,4 +219,11 @@ function Stat({ label, value, unit }: { label: string; value: string | number; u
       </div>
     </div>
   );
+}
+
+function formatRaceDistanceLabel(d: number | undefined | null): string {
+  const v = d && d > 0 ? d : 10;
+  if (Number.isInteger(v)) return `${v}K`;
+  // 21.097 → 21K, 42.195 → 42K (chip stays compact)
+  return `${Math.round(v)}K`;
 }

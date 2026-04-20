@@ -14,7 +14,159 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      consents: {
+        Row: {
+          accepted_at: string
+          c1: boolean
+          c2: boolean
+          c3: boolean
+          id: string
+          user_id: string
+        }
+        Insert: {
+          accepted_at?: string
+          c1: boolean
+          c2: boolean
+          c3: boolean
+          id?: string
+          user_id: string
+        }
+        Update: {
+          accepted_at?: string
+          c1?: boolean
+          c2?: boolean
+          c3?: boolean
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      plans: {
+        Row: {
+          adjusted_estimate: number | null
+          created_at: string
+          id: string
+          target: number
+          updated_at: string
+          user_id: string
+          weeks: Json
+        }
+        Insert: {
+          adjusted_estimate?: number | null
+          created_at?: string
+          id?: string
+          target: number
+          updated_at?: string
+          user_id: string
+          weeks: Json
+        }
+        Update: {
+          adjusted_estimate?: number | null
+          created_at?: string
+          id?: string
+          target?: number
+          updated_at?: string
+          user_id?: string
+          weeks?: Json
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          age: number
+          created_at: string
+          current_best: number
+          days_until_race: number
+          id: string
+          level: string
+          sex: string
+          target_time: number
+          updated_at: string
+          weekly_freq: number
+          weight: number
+        }
+        Insert: {
+          age: number
+          created_at?: string
+          current_best: number
+          days_until_race: number
+          id: string
+          level: string
+          sex: string
+          target_time: number
+          updated_at?: string
+          weekly_freq: number
+          weight: number
+        }
+        Update: {
+          age?: number
+          created_at?: string
+          current_best?: number
+          days_until_race?: number
+          id?: string
+          level?: string
+          sex?: string
+          target_time?: number
+          updated_at?: string
+          weekly_freq?: number
+          weight?: number
+        }
+        Relationships: []
+      }
+      workout_logs: {
+        Row: {
+          cadence: number | null
+          distance: number
+          duration: number
+          hr_avg: number
+          hr_max: number | null
+          id: string
+          logged_at: string
+          notes: string | null
+          rpe: number
+          safety_overridden: boolean | null
+          session_idx: number | null
+          session_name: string
+          session_type: string
+          user_id: string
+          week_idx: number | null
+        }
+        Insert: {
+          cadence?: number | null
+          distance: number
+          duration: number
+          hr_avg: number
+          hr_max?: number | null
+          id?: string
+          logged_at?: string
+          notes?: string | null
+          rpe: number
+          safety_overridden?: boolean | null
+          session_idx?: number | null
+          session_name: string
+          session_type: string
+          user_id: string
+          week_idx?: number | null
+        }
+        Update: {
+          cadence?: number | null
+          distance?: number
+          duration?: number
+          hr_avg?: number
+          hr_max?: number | null
+          id?: string
+          logged_at?: string
+          notes?: string | null
+          rpe?: number
+          safety_overridden?: boolean | null
+          session_idx?: number | null
+          session_name?: string
+          session_type?: string
+          user_id?: string
+          week_idx?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

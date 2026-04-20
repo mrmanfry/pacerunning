@@ -54,6 +54,8 @@ export interface WorkoutLog {
   notes?: string;
   safetyOverridden?: boolean;
   loggedAt?: string;
+  skipped?: boolean;
+  skipReason?: string | null;
 }
 
 export interface Zone {
@@ -636,7 +638,7 @@ export function analyzeWorkout(
 
 export function computeAdjustedEstimate(logs: WorkoutLog[], profile: Profile): number {
   const qualityLogs = logs.filter(
-    (l) => l.sessionType === "quality" || l.sessionType === "long" || l.sessionType === "medium"
+    (l) => !l.skipped && (l.sessionType === "quality" || l.sessionType === "long" || l.sessionType === "medium")
   );
   if (qualityLogs.length === 0) return profile.targetTime;
 
@@ -694,10 +696,11 @@ export function daysBetween(fromISO: string | Date, toISO: string | Date): numbe
   return Math.ceil(ms / 86400000);
 }
 
-// Returns the most recently logged workout (by loggedAt), or null.
+// Returns the most recently logged workout (by loggedAt), excluding skipped ones.
 export function getLastCompletedLog(logs: WorkoutLog[]): WorkoutLog | null {
-  if (!logs.length) return null;
-  const sorted = [...logs].sort((a, b) => {
+  const done = logs.filter((l) => !l.skipped);
+  if (!done.length) return null;
+  const sorted = [...done].sort((a, b) => {
     const ta = a.loggedAt ? new Date(a.loggedAt).getTime() : 0;
     const tb = b.loggedAt ? new Date(b.loggedAt).getTime() : 0;
     return tb - ta;

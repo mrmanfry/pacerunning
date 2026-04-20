@@ -1,19 +1,49 @@
-import { ArrowLeft, AlertTriangle, Check, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Check, CheckCircle2, MessageCircle, SkipForward, X } from "lucide-react";
+import { useState } from "react";
 import type { Profile, Session, WorkoutLog } from "@/lib/pace-engine";
 import { computeZones, getTypeBg } from "@/lib/pace-engine";
+import type { StoredAnalysis } from "@/lib/pace-repository";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 interface Props {
   session: { data: Session; weekIdx: number; sessionIdx: number };
   profile: Profile;
   loggedData?: WorkoutLog;
+  recentAnalyses?: StoredAnalysis[];
   onBack: () => void;
   onLog: () => void;
+  onSkip?: (reason: string) => Promise<void> | void;
 }
 
-export function SessionDetail({ session, profile, loggedData, onBack, onLog }: Props) {
+export function SessionDetail({ session, profile, loggedData, recentAnalyses, onBack, onLog, onSkip }: Props) {
   const zones = computeZones(profile);
   const s = session.data;
   const isCompleted = !!loggedData;
+  const isSkipped = !!loggedData?.skipped;
+
+  const [showSkipDialog, setShowSkipDialog] = useState(false);
+  const [skipReason, setSkipReason] = useState("");
+  const [skipping, setSkipping] = useState(false);
+
+  const handleConfirmSkip = async () => {
+    if (!onSkip) return;
+    setSkipping(true);
+    try {
+      await onSkip(skipReason.trim());
+      setShowSkipDialog(false);
+      setSkipReason("");
+    } finally {
+      setSkipping(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-paper pb-28">
@@ -31,9 +61,18 @@ export function SessionDetail({ session, profile, loggedData, onBack, onLog }: P
           {s.targetHR && <Pill>~{s.targetHR} bpm</Pill>}
         </div>
 
-        {isCompleted && (
+        {isCompleted && !isSkipped && (
           <div className="mt-4 bg-lime-500 text-lime-950 rounded-full px-4 py-2 inline-flex items-center gap-2 text-xs font-bold">
             <CheckCircle2 size={16} /> ALLENAMENTO COMPLETATO
+            {loggedData?.loggedAt && (
+              <span className="mono-font text-[10px] opacity-80">· {formatLoggedDate(loggedData.loggedAt)}</span>
+            )}
+          </div>
+        )}
+
+        {isSkipped && (
+          <div className="mt-4 bg-stone-700 text-paper rounded-full px-4 py-2 inline-flex items-center gap-2 text-xs font-bold">
+            <SkipForward size={16} /> ALLENAMENTO SALTATO
             {loggedData?.loggedAt && (
               <span className="mono-font text-[10px] opacity-80">· {formatLoggedDate(loggedData.loggedAt)}</span>
             )}
@@ -42,7 +81,27 @@ export function SessionDetail({ session, profile, loggedData, onBack, onLog }: P
       </div>
 
       <div className="p-6 space-y-5">
-        {isCompleted && loggedData && (
+        {isSkipped && (
+          <div>
+            <div className="mono-font text-xs tracking-widest text-stone-500 mb-3">▼ HAI SALTATO QUESTA SESSIONE</div>
+            <div className="bg-stone-100 border border-stone-200 rounded-3xl p-5">
+              {loggedData?.skipReason ? (
+                <>
+                  <div className="mono-font text-[10px] tracking-widest text-stone-500 mb-1">MOTIVO</div>
+                  <div className="text-sm text-stone-800 leading-relaxed">{loggedData.skipReason}</div>
+                </>
+              ) : (
+                <div className="text-sm text-stone-600">Nessun motivo registrato.</div>
+              )}
+              <div className="mt-3 text-xs text-stone-500 leading-relaxed">
+                Saltare un allenamento ogni tanto è normale. Il prossimo spunto del diario è comunque disponibile in
+                Dashboard, e il coach ne tiene conto nel suggerirti come riprendere.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isCompleted && !isSkipped && loggedData && (
           <div>
             <div className="mono-font text-xs tracking-widest text-stone-500 mb-3">▼ COSA HAI FATTO</div>
             <div className="bg-ink text-paper rounded-3xl p-5 space-y-3">
@@ -67,6 +126,60 @@ export function SessionDetail({ session, profile, loggedData, onBack, onLog }: P
                   <div className="text-sm text-stone-200 leading-relaxed">{loggedData.notes}</div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {isCompleted && !isSkipped && recentAnalyses && recentAnalyses.length > 0 && (
+          <div>
+            <div className="mono-font text-xs tracking-widest text-stone-500 mb-3">
+              ▼ STORICO COACH (ULTIMI {recentAnalyses.length})
+            </div>
+            <div className="text-xs text-stone-500 mb-3">Vedi come si sta evolvendo il consiglio nel tempo.</div>
+            <div className="space-y-3">
+              {recentAnalyses.map((a, i) => {
+                const isCurrent = loggedData?.id && a.logId === loggedData.id;
+                return (
+                  <div
+                    key={a.id}
+                    className={`rounded-2xl p-4 border ${
+                      isCurrent ? "bg-ink text-paper border-ink" : "bg-card border-border"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2 gap-2">
+                      <div className="flex items-center gap-2">
+                        <MessageCircle size={14} className={isCurrent ? "text-signal" : "text-stone-500"} />
+                        <span
+                          className={`mono-font text-[10px] tracking-widest ${
+                            isCurrent ? "text-signal" : "text-stone-500"
+                          }`}
+                        >
+                          {isCurrent ? "QUESTA SESSIONE" : `${i === 0 ? "ULTIMA" : i === 1 ? "PRECEDENTE" : "PRIMA"}`}
+                        </span>
+                      </div>
+                      <span
+                        className={`mono-font text-[10px] ${isCurrent ? "text-stone-400" : "text-stone-400"}`}
+                      >
+                        {formatLoggedDate(a.createdAt)}
+                      </span>
+                    </div>
+                    {a.nextMove && (
+                      <div
+                        className={`text-sm leading-relaxed ${isCurrent ? "text-paper" : "text-stone-800"}`}
+                      >
+                        {a.nextMove}
+                      </div>
+                    )}
+                    {!a.nextMove && a.sessionHighlight && (
+                      <div
+                        className={`text-sm leading-relaxed ${isCurrent ? "text-paper" : "text-stone-800"}`}
+                      >
+                        {a.sessionHighlight}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -124,7 +237,7 @@ export function SessionDetail({ session, profile, loggedData, onBack, onLog }: P
         </div>
       </div>
 
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 max-w-md w-full px-6">
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 max-w-md w-full px-6 space-y-2">
         {isCompleted ? (
           <button
             onClick={onBack}
@@ -133,14 +246,61 @@ export function SessionDetail({ session, profile, loggedData, onBack, onLog }: P
             <ArrowLeft size={18} /> TORNA AL DIARIO
           </button>
         ) : (
-          <button
-            onClick={onLog}
-            className="w-full bg-ink text-paper py-4 rounded-full font-bold tracking-wide flex items-center justify-center gap-2 shadow-lg hover:bg-ink-soft transition-all active:scale-[0.98]"
-          >
-            <Check size={18} /> REGISTRA QUESTO ALLENAMENTO
-          </button>
+          <>
+            <button
+              onClick={onLog}
+              className="w-full bg-ink text-paper py-4 rounded-full font-bold tracking-wide flex items-center justify-center gap-2 shadow-lg hover:bg-ink-soft transition-all active:scale-[0.98]"
+            >
+              <Check size={18} /> REGISTRA QUESTO ALLENAMENTO
+            </button>
+            {onSkip && (
+              <button
+                onClick={() => setShowSkipDialog(true)}
+                className="w-full bg-stone-100 text-stone-700 py-3 rounded-full font-bold tracking-wide flex items-center justify-center gap-2 hover:bg-stone-200 transition-all active:scale-[0.98] text-sm border border-stone-300"
+              >
+                <SkipForward size={16} /> HO SALTATO QUESTO ALLENAMENTO
+              </button>
+            )}
+          </>
         )}
       </div>
+
+      <Dialog open={showSkipDialog} onOpenChange={setShowSkipDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Hai saltato questo allenamento?</DialogTitle>
+            <DialogDescription>
+              Lo segniamo come "saltato". Il coach ne terrà conto e ti dirà cosa fare al prossimo. Capita a tutti.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="mono-font text-xs tracking-widest text-stone-500">MOTIVO (FACOLTATIVO)</label>
+            <Textarea
+              value={skipReason}
+              onChange={(e) => setSkipReason(e.target.value)}
+              placeholder="Es: troppo stanco, impegni di lavoro, brutto tempo..."
+              rows={3}
+              maxLength={300}
+            />
+          </div>
+          <DialogFooter className="gap-2">
+            <button
+              onClick={() => setShowSkipDialog(false)}
+              disabled={skipping}
+              className="px-5 py-2.5 rounded-full text-sm font-bold bg-stone-100 text-stone-700 hover:bg-stone-200 transition-all flex items-center gap-2"
+            >
+              <X size={14} /> Annulla
+            </button>
+            <button
+              onClick={handleConfirmSkip}
+              disabled={skipping}
+              className="px-5 py-2.5 rounded-full text-sm font-bold bg-ink text-paper hover:bg-ink-soft transition-all flex items-center gap-2 disabled:opacity-50"
+            >
+              <SkipForward size={14} /> {skipping ? "Salvo..." : "Conferma salto"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

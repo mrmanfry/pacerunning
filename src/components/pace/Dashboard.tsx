@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, Check, ChevronRight, Info, MessageCircle } from "lucide-react";
+import { Activity, AlertTriangle, Check, ChevronRight, Info, MessageCircle, SkipForward } from "lucide-react";
 import type { Plan, Profile, WorkoutLog, Session } from "@/lib/pace-engine";
 import { computeZones, daysBetween, findNextSession, formatTime, getTypeStyles, paceFromTime } from "@/lib/pace-engine";
 import type { StoredAnalysis } from "@/lib/pace-repository";
@@ -183,7 +183,9 @@ export function Dashboard({
               </div>
               <div className="space-y-2">
                 {week.sessions.map((s, si) => {
-                  const done = logs.some((l) => l.weekIdx === wi && l.sessionIdx === si);
+                  const log = logs.find((l) => l.weekIdx === wi && l.sessionIdx === si);
+                  const done = !!log && !log.skipped;
+                  const skipped = !!log?.skipped;
                   const isNext = nextSession && nextSession.weekIdx === wi && nextSession.sessionIdx === si;
                   return (
                     <button
@@ -192,6 +194,8 @@ export function Dashboard({
                       className={`w-full flex items-center gap-3 p-3 rounded-2xl text-left transition-all ${
                         done
                           ? "bg-lime-50 border border-lime-200"
+                          : skipped
+                          ? "bg-stone-100 border border-stone-300 opacity-75"
                           : isNext
                           ? "bg-stone-100 border-2 border-ink"
                           : "bg-stone-50 border border-stone-200 hover:border-stone-400"
@@ -201,17 +205,27 @@ export function Dashboard({
                         className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
                           done
                             ? "bg-lime-500 text-white"
+                            : skipped
+                            ? "bg-stone-400 text-white"
                             : isNext
                             ? "bg-ink text-paper"
                             : "bg-stone-200 text-stone-500"
                         }`}
                       >
-                        {done ? <Check size={16} /> : <span className="mono-font text-xs font-bold">{si + 1}</span>}
+                        {done ? (
+                          <Check size={16} />
+                        ) : skipped ? (
+                          <SkipForward size={14} />
+                        ) : (
+                          <span className="mono-font text-xs font-bold">{si + 1}</span>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-sm truncate">{s.name}</div>
+                        <div className={`font-semibold text-sm truncate ${skipped ? "line-through text-stone-500" : ""}`}>
+                          {s.name}
+                        </div>
                         <div className="mono-font text-xs text-stone-500">
-                          {s.duration} min · {s.type}
+                          {skipped ? "saltato" : `${s.duration} min · ${s.type}`}
                         </div>
                       </div>
                       <ChevronRight size={16} className="text-stone-400 flex-shrink-0" />

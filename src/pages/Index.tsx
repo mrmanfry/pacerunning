@@ -33,6 +33,7 @@ import {
   loadLogs,
   loadPlan,
   loadProfile,
+  loadRecentAnalyses,
   resetAllForUser,
   saveAnalysis,
   saveConsents,
@@ -69,6 +70,7 @@ const Index = () => {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [safetyBlock, setSafetyBlock] = useState<(SafetyResult & { pendingLog: WorkoutLog }) | null>(null);
   const [lastAnalysis, setLastAnalysis] = useState<StoredAnalysis | null>(null);
+  const [recentAnalyses, setRecentAnalyses] = useState<StoredAnalysis[]>([]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -78,12 +80,13 @@ const Index = () => {
     }
     (async () => {
       try {
-        const [c, p, pl, lg, la] = await Promise.all([
+        const [c, p, pl, lg, la, ra] = await Promise.all([
           loadLatestConsents(user.id),
           loadProfile(user.id),
           loadPlan(user.id),
           loadLogs(user.id),
           loadLatestAnalysis(user.id),
+          loadRecentAnalyses(user.id, 3),
         ]);
         const okConsents = !!(c && c.c1 && c.c2 && c.c3);
         setConsentsAccepted(okConsents);
@@ -91,6 +94,7 @@ const Index = () => {
         if (pl) setPlan(pl);
         setLogs(lg);
         setLastAnalysis(la);
+        setRecentAnalyses(ra);
 
         if (!okConsents) setScreen("frictionWall");
         else if (!p || !pl) setScreen("onboarding");
@@ -165,9 +169,9 @@ const Index = () => {
       const baseAnalysis = analyzeWorkout(fullLog, profile, updatedPlan, newLogs);
       const computed = computeMetrics(fullLog, profile);
 
-      // Recent same-type logs for context (last 3)
+      // Recent same-type logs for context (last 3) — exclude skipped
       const recentSameType = newLogs
-        .filter((l) => l.sessionType === fullLog.sessionType && l.id !== fullLog.id)
+        .filter((l) => !l.skipped && l.sessionType === fullLog.sessionType && l.id !== fullLog.id)
         .slice(-3)
         .map((l) => {
           const c = computeMetrics(l, profile);
@@ -215,14 +219,16 @@ const Index = () => {
               sessionHighlight: ai.sessionHighlight ?? null,
               nextMove: ai.nextMove ?? null,
             });
-            setLastAnalysis({
-              id: "local",
+            const fresh: StoredAnalysis = {
+              id: `local-${Date.now()}`,
               logId: fullLog.id!,
               technicalReading: ai.technicalReading ?? null,
               sessionHighlight: ai.sessionHighlight ?? null,
               nextMove: ai.nextMove ?? null,
               createdAt: new Date().toISOString(),
-            });
+            };
+            setLastAnalysis(fresh);
+            setRecentAnalyses((prev) => [fresh, ...prev].slice(0, 3));
           } catch (saveErr) {
             console.error("saveAnalysis error:", saveErr);
           }
@@ -264,6 +270,35 @@ const Index = () => {
     setAnalysis({ ...analysis, planAdjustment: { ...analysis.planAdjustment, shouldAdjust: false } });
   };
 
+  const skipSession = async (reason: string) => {
+    if (!user || !selectedSession || !profile || !plan) return;
+    try {
+      const skipLog: WorkoutLog = {
+        weekIdx: selectedSession.weekIdx,
+        sessionIdx: selectedSession.sessionIdx,
+        sessionType: selectedSession.data.type,
+        sessionName: selectedSession.data.name,
+        duration: 0,
+        distance: 0,
+        hrAvg: 0,
+        rpe: 0,
+        skipped: true,
+        skipReason: reason || null,
+      };
+      const inserted = await insertLog(user.id, skipLog);
+      const fullLog: WorkoutLog = { ...skipLog, id: inserted.id, loggedAt: inserted.loggedAt };
+      setLogs((prev) => [...prev, fullLog]);
+      toast({
+        title: "Allenamento segnato come saltato",
+        description: "Il prossimo spunto del diario è disponibile in Dashboard.",
+      });
+      setScreen("dashboard");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore nel salvataggio";
+      toast({ title: msg, variant: "destructive" });
+    }
+  };
+
   const resetAll = async () => {
     if (!user) return;
     try {
@@ -272,6 +307,7 @@ const Index = () => {
       setPlan(null);
       setLogs([]);
       setLastAnalysis(null);
+      setRecentAnalyses([]);
       setConsentsAccepted(false);
       setScreen("frictionWall");
       toast({ title: "Tutti i tuoi dati sono stati cancellati." });
@@ -287,6 +323,7 @@ const Index = () => {
     setPlan(null);
     setLogs([]);
     setLastAnalysis(null);
+    setRecentAnalyses([]);
     setConsentsAccepted(false);
     setScreen("auth");
   };
@@ -337,8 +374,10 @@ const Index = () => {
             session={selectedSession}
             profile={profile}
             loggedData={selectedLoggedData}
+            recentAnalyses={recentAnalyses}
             onBack={() => setScreen("dashboard")}
             onLog={() => setScreen("logWorkout")}
+            onSkip={skipSession}
           />
         )}
 

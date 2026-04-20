@@ -108,25 +108,28 @@ export async function loadLogs(userId: string): Promise<WorkoutLog[]> {
     .eq("user_id", userId)
     .order("logged_at", { ascending: true });
   if (error) throw error;
-  return (data || []).map((d) => ({
+  return (data || []).map((d: any) => ({
     id: d.id,
     weekIdx: d.week_idx,
     sessionIdx: d.session_idx,
     sessionType: d.session_type as SessionType,
     sessionName: d.session_name,
-    duration: Number(d.duration),
-    distance: Number(d.distance),
-    hrAvg: d.hr_avg,
+    duration: d.duration != null ? Number(d.duration) : 0,
+    distance: d.distance != null ? Number(d.distance) : 0,
+    hrAvg: d.hr_avg ?? 0,
     hrMax: d.hr_max,
-    rpe: d.rpe,
+    rpe: d.rpe ?? 0,
     cadence: d.cadence,
     notes: d.notes ?? "",
     safetyOverridden: d.safety_overridden ?? false,
     loggedAt: d.logged_at,
+    skipped: d.skipped ?? false,
+    skipReason: d.skip_reason ?? null,
   }));
 }
 
 export async function insertLog(userId: string, log: WorkoutLog): Promise<{ id: string; loggedAt: string }> {
+  const isSkip = !!log.skipped;
   const { data, error } = await supabase
     .from("workout_logs")
     .insert({
@@ -135,15 +138,17 @@ export async function insertLog(userId: string, log: WorkoutLog): Promise<{ id: 
       session_idx: log.sessionIdx ?? null,
       session_type: log.sessionType,
       session_name: log.sessionName,
-      duration: log.duration,
-      distance: log.distance,
-      hr_avg: log.hrAvg,
-      hr_max: log.hrMax ?? null,
-      rpe: log.rpe,
-      cadence: log.cadence ?? null,
+      duration: isSkip ? null : log.duration,
+      distance: isSkip ? null : log.distance,
+      hr_avg: isSkip ? null : log.hrAvg,
+      hr_max: isSkip ? null : (log.hrMax ?? null),
+      rpe: isSkip ? null : log.rpe,
+      cadence: isSkip ? null : (log.cadence ?? null),
       notes: log.notes ?? null,
       safety_overridden: log.safetyOverridden ?? false,
-    })
+      skipped: isSkip,
+      skip_reason: log.skipReason ?? null,
+    } as any)
     .select("id,logged_at")
     .single();
   if (error) throw error;
@@ -204,6 +209,24 @@ export async function loadLatestAnalysis(userId: string): Promise<StoredAnalysis
     nextMove: data.next_move,
     createdAt: data.created_at,
   };
+}
+
+export async function loadRecentAnalyses(userId: string, limit = 3): Promise<StoredAnalysis[]> {
+  const { data, error } = await supabase
+    .from("workout_analyses")
+    .select("id,log_id,technical_reading,session_highlight,next_move,created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data || []).map((d) => ({
+    id: d.id,
+    logId: d.log_id,
+    technicalReading: d.technical_reading,
+    sessionHighlight: d.session_highlight,
+    nextMove: d.next_move,
+    createdAt: d.created_at,
+  }));
 }
 
 // ---------- Reset (full delete for current user) ----------

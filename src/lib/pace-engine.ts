@@ -672,23 +672,24 @@ export interface ComputedMetrics {
   targetPace: string;
 }
 
-export function computeMetrics(log: WorkoutLog, profile: Profile): ComputedMetrics {
-  const { hrMax } = computeZones(profile);
+export function computeMetrics(log: WorkoutLog, profile: Profile, logs?: WorkoutLog[]): ComputedMetrics {
+  const { hrMax } = computeZones(profile, undefined, logs);
   const hrPctMax = Math.round((log.hrAvg / hrMax) * 100);
-  // Karvonen with estimated resting HR = 60
-  const restingHR = 60;
+  // Karvonen with user's hrRest if available, otherwise default 60
+  const restingHR = profile.hrRest != null && profile.hrRest > 0 ? profile.hrRest : 60;
   const hrPctReserve = Math.round(((log.hrAvg - restingHR) / (hrMax - restingHR)) * 100);
   const paceMinKm = log.duration / log.distance;
   const m = Math.floor(paceMinKm);
   const s = Math.round((paceMinKm - m) * 60);
   const paceFormatted = `${m}'${String(s).padStart(2, "0")}"`;
 
+  // Intensity zone derived from %HRR (Karvonen) — more robust than %HRmax
   let intensityZone = "Z1";
   let intensityLabel = "molto leggera";
-  if (hrPctMax >= 90) { intensityZone = "Z5"; intensityLabel = "alta"; }
-  else if (hrPctMax >= 85) { intensityZone = "Z4"; intensityLabel = "medio-alta"; }
-  else if (hrPctMax >= 75) { intensityZone = "Z3"; intensityLabel = "media"; }
-  else if (hrPctMax >= 65) { intensityZone = "Z2"; intensityLabel = "leggera"; }
+  if (hrPctReserve >= 92) { intensityZone = "Z5"; intensityLabel = "alta"; }
+  else if (hrPctReserve >= 85) { intensityZone = "Z4"; intensityLabel = "medio-alta"; }
+  else if (hrPctReserve >= 75) { intensityZone = "Z3"; intensityLabel = "media"; }
+  else if (hrPctReserve >= 65) { intensityZone = "Z2"; intensityLabel = "leggera"; }
 
   const raceDist = profile.raceDistance || 10;
   const targetPace = paceFromTime(profile.targetTime, raceDist);

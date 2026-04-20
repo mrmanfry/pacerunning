@@ -872,7 +872,7 @@ function singleSessionEstimate(log: WorkoutLog, hrMax: number, raceDist: number)
 }
 
 export function computeEstimateDetail(logs: WorkoutLog[], profile: Profile): EstimateDetail {
-  const { hrMax } = computeZones(profile);
+  const { hrMax } = computeZones(profile, undefined, logs);
   const target = profile.targetTime;
   const raceDist = profile.raceDistance || 10;
   const now = Date.now();

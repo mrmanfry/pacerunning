@@ -1,7 +1,7 @@
 project_id = "kvinogxsvsgkrpddxkeg"
 
 [functions.extract-workout-data]
-verify_jwt = true
+verify_jwt = false
 
 [functions.analyze-workout]
-verify_jwt = true
+verify_jwt = false

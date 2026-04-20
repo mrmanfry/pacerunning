@@ -16,6 +16,7 @@ export interface Profile {
   raceDate?: string | null; // ISO date YYYY-MM-DD
   level: Level;
   raceDistance: number;    // km, default 10
+  hrRest?: number | null;  // bpm, optional, defaults to 60 in calculations
 }
 
 export interface Session {

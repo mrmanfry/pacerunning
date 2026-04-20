@@ -525,7 +525,7 @@ export function generatePlan(profile: Profile): Plan {
           `Spesso si consiglia di partire controllati: primi km sotto la propria FC soglia (~${Math.round(hrMax * 0.86)} bpm indicativi)`,
           `Corpo centrale della gara: intensità medio-alta, indicativamente ${Math.round(hrMax * 0.88)}-${Math.round(hrMax * 0.92)} bpm`,
           "Finale: se senti di avere margine, puoi chiudere progressivamente",
-          `Ritmo ipotetico per ${profile.targetTime}': ${paceFromTime(profile.targetTime)}/km`,
+          `Ritmo ipotetico per ${profile.targetTime}' su ${profile.raceDistance || 10}km: ${paceFromTime(profile.targetTime, profile.raceDistance || 10)}/km`,
         ],
         notes: "Partire troppo forte è l'errore più comunemente segnalato nella letteratura amatoriale.",
       },

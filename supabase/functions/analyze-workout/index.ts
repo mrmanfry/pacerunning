@@ -99,15 +99,15 @@ Deno.serve(async (req) => {
                 properties: {
                   technicalReading: {
                     type: "string",
-                    description: "Lettura Tecnica (Cap. 3.4): incrocio battiti/ritmo/intenzione. 2-4 frasi.",
+                    description: "Com'è andata davvero, da amico-coach. Incrocia cuore/ritmo/intenzione in modo umano. 2-4 frasi.",
                   },
                   sessionHighlight: {
                     type: "string",
-                    description: "Highlight: cosa ha funzionato o cosa correggere, considerando note e RPE. 2-4 frasi.",
+                    description: "Cosa porti a casa: cosa ha funzionato o cosa sistemare, considerando note e RPE. Tono incoraggiante. 2-4 frasi.",
                   },
                   nextMove: {
                     type: "string",
-                    description: "Spunto Operativo retrospettivo per la prossima sessione. 2-3 frasi.",
+                    description: "Cosa fare al PROSSIMO allenamento: tipo, ritmo indicativo, FC, durata. Concreto e collegato alla sessione di oggi. 3-5 frasi.",
                   },
                   planAdjustment: {
                     type: "object",

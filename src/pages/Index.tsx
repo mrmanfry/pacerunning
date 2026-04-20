@@ -100,6 +100,22 @@ const Index = () => {
         setLogs(lg);
         setLastAnalysis(la);
         setRecentAnalyses(ra);
+        if (p) {
+          setLoadState(
+            computeLoadState(
+              lg.map((l) => ({
+                loggedAt: l.loggedAt ?? null,
+                duration: l.duration,
+                hrAvg: l.hrAvg,
+                hrMax: l.hrMax ?? null,
+                rpe: l.rpe,
+                sessionType: l.sessionType,
+                skipped: l.skipped,
+              })),
+              { age: p.age, sex: p.sex, hrRest: p.hrRest ?? null },
+            ),
+          );
+        }
 
         if (!okConsents) setScreen("frictionWall");
         else if (!p || !pl) setScreen("onboarding");

@@ -35,7 +35,15 @@ OUTPUT — 3 CAMPI, tono amico-coach:
 3. **nextMove** (3-5 frasi, IMPORTANTE): "Cosa fare al prossimo allenamento". DEVI ancorarti alla SESSIONE PIANIFICATA fornita nel prompt (campo "Prossima sessione del piano"). NON inventare un allenamento diverso. Conferma quella sessione, eventualmente suggerendo piccoli aggiustamenti (intensità, durata, FC) basati su come è andata oggi. Esempio: "Il prossimo del piano è [NOME, durata]. Visto che oggi hai spinto, fallo sull'intensità più bassa del range, FC sotto X, e se ti senti pesante riduci la parte centrale di 5'." Se NON c'è una prossima sessione pianificata (piano completato), allora puoi suggerire liberamente cosa fare.
 
 PLAN ADJUSTMENT:
-Se lo storico dice che il target gara è irrealistico (off di oltre 3 min, in più o in meno), popola planAdjustment con shouldAdjust=true, nuova stima onesta, e un messaggio da amico ("Guarda, dai numeri che vedo, 50 min sui 10K ora come ora è tirato. Più realistico puntare a ~55 e magari rivediamo dopo qualche settimana."). Altrimenti shouldAdjust=false.`;
+Se lo storico dice che il target gara è irrealistico (off di oltre 3 min, in più o in meno), popola planAdjustment con shouldAdjust=true, nuova stima onesta, e un messaggio da amico ("Guarda, dai numeri che vedo, 50 min sui 10K ora come ora è tirato. Più realistico puntare a ~55 e magari rivediamo dopo qualche settimana."). Altrimenti shouldAdjust=false.
+
+DATI IMPLAUSIBILI (CRITICO):
+Se il prompt segnala "DATI IMPLAUSIBILI" con severity=impossible (es: passo sotto 2'30"/km, distanza > 80km, durata > 10h), NON celebrare la performance, NON dire "sei andato come un treno", NON usare quei numeri per la lettura tecnica. Invece:
+- in technicalReading: di' chiaramente da amico che i numeri non tornano ("Ehi, qui c'è qualcosa che non quadra: 50km in 35 min vorrebbe dire correre più veloce del record mondiale, ripetuto per un'ora. Probabile errore di inserimento — magari hai messo i metri al posto dei km, o invertito durata e distanza."). Spiega cosa potrebbe essere successo.
+- in sessionHighlight: invita a ricontrollare e re-inserire la sessione corretta.
+- in nextMove: dì che non puoi dare un consiglio finché i dati non sono attendibili, e suggerisci di correggere il log prima del prossimo allenamento.
+- planAdjustment.shouldAdjust = false sempre quando ci sono dati impossibili.
+Se invece severity=warn (numeri strani ma non impossibili), commentali con cautela ("FC media bassa per quel passo, hai una fascia o uno smartwatch nuovo? Verifica la calibrazione").`;
 
 const FORBIDDEN_WORDS = [
   "sindrome",
@@ -67,14 +75,14 @@ Deno.serve(async (req) => {
     if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
 
     const body = await req.json();
-    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned } = body || {};
+    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility } = body || {};
     if (!computed || !log || !profile) return json({ error: "Invalid payload" }, 400);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return json({ error: "AI not configured" }, 500);
 
     // Cap. 3.2 — Sandwich: passa numeri pre-calcolati
-    const userPrompt = buildUserPrompt({ computed, log, profile, recentSameType, allLogsSummary, nextPlanned });
+    const userPrompt = buildUserPrompt({ computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility });
 
     const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -158,13 +166,24 @@ Deno.serve(async (req) => {
 });
 
 function buildUserPrompt(args: any): string {
-  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned } = args;
+  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility } = args;
   const recent = (recentSameType || [])
     .map(
       (r: any, i: number) =>
         `  ${i + 1}. ${r.distance}km in ${r.duration}min, FC media ${r.hrAvg} (${r.hrPctMax}% FCmax), RPE ${r.rpe}`
     )
     .join("\n") || "  (nessuno storico dello stesso tipo)";
+
+  const plausBlock = (() => {
+    if (!plausibility || !plausibility.issues || plausibility.issues.length === 0) {
+      return "Plausibilità dati: OK (numeri nel range fisiologico).";
+    }
+    const lines = plausibility.issues
+      .map((i: any) => `  - [${i.severity.toUpperCase()}] (${i.field}) ${i.message}`)
+      .join("\n");
+    const status = plausibility.ok ? "WARN" : "DATI IMPLAUSIBILI";
+    return `Plausibilità dati: ${status}\n${lines}`;
+  })();
 
   const nextBlock = nextPlanned
     ? `Prossima sessione del piano (settimana ${nextPlanned.weekIdx + 1}, sessione ${nextPlanned.sessionIdx + 1}):
@@ -198,6 +217,8 @@ Sessione corrente:
 - Cadenza: ${log.cadence || "n/d"} ${log.cadence ? "passi/min" : ""}
 - Note utente: ${log.notes ? `"${log.notes}"` : "(vuote)"}
 
+${plausBlock}
+
 Confronto con target gara:
 - Ritmo target: ${computed.targetPace}/km
 - Ritmo sessione: ${computed.paceFormatted}/km
@@ -215,11 +236,12 @@ Sintesi storico completo (${allLogsSummary?.totalSessions || 0} sessioni):
 ${nextBlock}
 
 ISTRUZIONI:
-1. Scrivi technicalReading, sessionHighlight, nextMove con tono da amico-coach (vedi system prompt). Niente paroloni.
-2. In **nextMove** DEVI ancorarti alla "Prossima sessione del piano" sopra. Cita il nome esatto della sessione. NON inventare un allenamento diverso (no "Lungo Semplice 8-10km" se nel piano c'è "Medio in progressione"). Se serve, suggerisci piccoli aggiustamenti dentro quella sessione (es: "tieni la parte progressiva sul lato basso del range FC", "se ti senti stanco riduci di 5' la parte centrale", "stai sotto i X bpm nei 20' progressivi"). Collega esplicitamente alla sessione di oggi ("visto che oggi...", "dato che hai spinto..."). Se NON c'è una prossima sessione pianificata, allora puoi proporre liberamente.
-3. Per planAdjustment: usa la "Stima 10K dai log" e la sua **confidenza**. Se confidenza è "low" (metodo "target-fallback"), NON suggerire adattamenti del target — siamo ancora in fase di calibrazione, scrivi shouldAdjust=false. Se confidenza è "medium" o "high" e la stima differisce dal target di oltre 3 min in modo consistente, suggerisci l'adattamento da amico onesto. Quando ne parli, ricorda all'utente che è una banda (es: "siamo intorno ai X', tra Y' e Z'"), non un numero secco. Meglio un target raggiungibile che uno irrealistico.
-4. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight invita SOLO a sentire un medico, da amico preoccupato.
-5. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
+1. **PRIMA DI TUTTO**: controlla il blocco "Plausibilità dati". Se status è "DATI IMPLAUSIBILI", segui le regole della sezione "DATI IMPLAUSIBILI" del system prompt: NON celebrare numeri impossibili, segnala l'errore da amico, chiedi di re-inserire. Ignora le altre istruzioni di lettura performance e metti planAdjustment.shouldAdjust=false.
+2. Altrimenti, scrivi technicalReading, sessionHighlight, nextMove con tono da amico-coach (vedi system prompt). Niente paroloni.
+3. In **nextMove** DEVI ancorarti alla "Prossima sessione del piano" sopra. Cita il nome esatto della sessione. NON inventare un allenamento diverso (no "Lungo Semplice 8-10km" se nel piano c'è "Medio in progressione"). Se serve, suggerisci piccoli aggiustamenti dentro quella sessione (es: "tieni la parte progressiva sul lato basso del range FC", "se ti senti stanco riduci di 5' la parte centrale", "stai sotto i X bpm nei 20' progressivi"). Collega esplicitamente alla sessione di oggi ("visto che oggi...", "dato che hai spinto..."). Se NON c'è una prossima sessione pianificata, allora puoi proporre liberamente.
+4. Per planAdjustment: usa la "Stima 10K dai log" e la sua **confidenza**. Se confidenza è "low" (metodo "target-fallback") OPPURE i dati di oggi sono implausibili, NON suggerire adattamenti del target — siamo ancora in fase di calibrazione, scrivi shouldAdjust=false. Se confidenza è "medium" o "high" e la stima differisce dal target di oltre 3 min in modo consistente, suggerisci l'adattamento da amico onesto. Quando ne parli, ricorda all'utente che è una banda (es: "siamo intorno ai X', tra Y' e Z'"), non un numero secco. Meglio un target raggiungibile che uno irrealistico.
+5. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight invita SOLO a sentire un medico, da amico preoccupato.
+6. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
 }
 
 function sanitizeOutput(parsed: any) {

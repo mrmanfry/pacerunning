@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import {
   analyzeWorkout,
+  checkDataPlausibility,
   checkSafetyFlags,
   computeEstimateDetail,
   computeMetrics,
@@ -238,9 +239,11 @@ const Index = () => {
           }
         : null;
 
+      const plausibility = checkDataPlausibility(fullLog);
+
       try {
         const { data: aiData, error: aiError } = await supabase.functions.invoke("analyze-workout", {
-          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary, nextPlanned },
+          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary, nextPlanned, plausibility },
         });
 
         if (aiError) {

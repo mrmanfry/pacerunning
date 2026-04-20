@@ -79,6 +79,113 @@ export interface Zone {
   highlight: boolean;
 }
 
+export interface PlausibilityIssue {
+  field: "pace" | "hrAvg" | "hrMax" | "distance" | "duration" | "cadence";
+  severity: "warn" | "impossible";
+  message: string;
+}
+
+export interface PlausibilityResult {
+  ok: boolean;
+  issues: PlausibilityIssue[];
+}
+
+// Physiological / common-sense bounds. Anything outside these is either a typo
+// or impossible for a human runner. The estimate engine excludes "impossible"
+// sessions; the AI coach is told NOT to celebrate them.
+//
+// Pace floor: world record 100m ≈ 9.58s = 1'36"/km — but sustained over ≥1km
+// no human has ever run faster than ~2'10"/km (mile WR pace). We use 2'30"/km
+// as the absolute floor: anything faster is a data-entry error.
+// Pace ceiling: 15'/km is walking pace, beyond that it's not really running.
+const PACE_MIN_SEC_PER_KM = 150; // 2'30"/km
+const PACE_MAX_SEC_PER_KM = 900; // 15'/km
+const HR_AVG_MIN = 70;
+const HR_AVG_MAX = 230;
+const HR_MAX_MIN = 100;
+const HR_MAX_MAX = 240;
+const DISTANCE_MAX_KM = 80; // ultra territory; beyond is likely a typo
+const DURATION_MAX_MIN = 600; // 10h cap
+const CADENCE_MIN = 100;
+const CADENCE_MAX = 240;
+
+export function checkDataPlausibility(log: WorkoutLog): PlausibilityResult {
+  const issues: PlausibilityIssue[] = [];
+
+  if (log.distance && log.duration && log.distance > 0) {
+    const paceSec = (log.duration / log.distance) * 60;
+    if (paceSec < PACE_MIN_SEC_PER_KM) {
+      issues.push({
+        field: "pace",
+        severity: "impossible",
+        message: `Passo di ${formatPaceFromSec(paceSec)}/km — non è fisicamente possibile per un essere umano (record mondiali sono > 2'30"/km su distanze ≥ 1km). Probabile errore di inserimento (es: distanza in metri invece di km, o durata invertita).`,
+      });
+    } else if (paceSec > PACE_MAX_SEC_PER_KM) {
+      issues.push({
+        field: "pace",
+        severity: "warn",
+        message: `Passo molto lento (${formatPaceFromSec(paceSec)}/km), più simile a camminata che corsa.`,
+      });
+    }
+  }
+
+  if (log.distance != null && (log.distance < 0 || log.distance > DISTANCE_MAX_KM)) {
+    issues.push({
+      field: "distance",
+      severity: log.distance > DISTANCE_MAX_KM ? "impossible" : "warn",
+      message: `Distanza di ${log.distance}km fuori scala.`,
+    });
+  }
+
+  if (log.duration != null && (log.duration <= 0 || log.duration > DURATION_MAX_MIN)) {
+    issues.push({
+      field: "duration",
+      severity: "impossible",
+      message: `Durata di ${log.duration} min fuori scala.`,
+    });
+  }
+
+  if (log.hrAvg != null && (log.hrAvg < HR_AVG_MIN || log.hrAvg > HR_AVG_MAX)) {
+    issues.push({
+      field: "hrAvg",
+      severity: "warn",
+      message: `FC media ${log.hrAvg} bpm fuori dal range plausibile (${HR_AVG_MIN}-${HR_AVG_MAX}).`,
+    });
+  }
+
+  if (log.hrMax != null && (log.hrMax < HR_MAX_MIN || log.hrMax > HR_MAX_MAX)) {
+    issues.push({
+      field: "hrMax",
+      severity: "warn",
+      message: `FC max ${log.hrMax} bpm fuori dal range plausibile.`,
+    });
+  }
+
+  if (log.hrAvg != null && log.hrMax != null && log.hrAvg > log.hrMax) {
+    issues.push({
+      field: "hrAvg",
+      severity: "warn",
+      message: `FC media (${log.hrAvg}) maggiore di FC max (${log.hrMax}) — controlla i dati.`,
+    });
+  }
+
+  if (log.cadence != null && (log.cadence < CADENCE_MIN || log.cadence > CADENCE_MAX)) {
+    issues.push({
+      field: "cadence",
+      severity: "warn",
+      message: `Cadenza ${log.cadence} passi/min fuori dal range tipico (${CADENCE_MIN}-${CADENCE_MAX}).`,
+    });
+  }
+
+  return { ok: issues.every((i) => i.severity !== "impossible"), issues };
+}
+
+function formatPaceFromSec(totalSec: number): string {
+  const m = Math.floor(totalSec / 60);
+  const s = Math.round(totalSec % 60);
+  return `${m}'${s.toString().padStart(2, "0")}"`;
+}
+
 export interface ZonesResult {
   hrMax: number;
   zones: Zone[];
@@ -726,6 +833,10 @@ export function computeEstimateDetail(logs: WorkoutLog[], profile: Profile): Est
 
   for (const log of logs) {
     if (log.skipped) continue;
+    // Exclude physiologically impossible sessions from the estimate so a single
+    // typo (e.g. 50km in 35min) doesn't poison the projection.
+    const plaus = checkDataPlausibility(log);
+    if (!plaus.ok) continue;
     const est = singleSessionEstimate(log, hrMax);
     if (est == null || !isFinite(est) || est <= 0) continue;
     const ts = log.loggedAt ? new Date(log.loggedAt).getTime() : now;

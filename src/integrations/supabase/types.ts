@@ -86,6 +86,7 @@ export type Database = {
           created_at: string
           current_best: number
           days_until_race: number
+          hr_rest: number | null
           id: string
           level: string
           race_date: string | null
@@ -101,6 +102,7 @@ export type Database = {
           created_at?: string
           current_best: number
           days_until_race: number
+          hr_rest?: number | null
           id: string
           level: string
           race_date?: string | null
@@ -116,6 +118,7 @@ export type Database = {
           created_at?: string
           current_best?: number
           days_until_race?: number
+          hr_rest?: number | null
           id?: string
           level?: string
           race_date?: string | null

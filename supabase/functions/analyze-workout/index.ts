@@ -35,7 +35,15 @@ OUTPUT — 3 CAMPI, tono amico-coach:
 3. **nextMove** (3-5 frasi, IMPORTANTE): "Cosa fare al prossimo allenamento". DEVI ancorarti alla SESSIONE PIANIFICATA fornita nel prompt (campo "Prossima sessione del piano"). NON inventare un allenamento diverso. Conferma quella sessione, eventualmente suggerendo piccoli aggiustamenti (intensità, durata, FC) basati su come è andata oggi. Esempio: "Il prossimo del piano è [NOME, durata]. Visto che oggi hai spinto, fallo sull'intensità più bassa del range, FC sotto X, e se ti senti pesante riduci la parte centrale di 5'." Se NON c'è una prossima sessione pianificata (piano completato), allora puoi suggerire liberamente cosa fare.
 
 PLAN ADJUSTMENT:
-Se lo storico dice che il target gara è irrealistico (off di oltre 3 min, in più o in meno), popola planAdjustment con shouldAdjust=true, nuova stima onesta, e un messaggio da amico ("Guarda, dai numeri che vedo, 50 min sui 10K ora come ora è tirato. Più realistico puntare a ~55 e magari rivediamo dopo qualche settimana."). Altrimenti shouldAdjust=false.`;
+Se lo storico dice che il target gara è irrealistico (off di oltre 3 min, in più o in meno), popola planAdjustment con shouldAdjust=true, nuova stima onesta, e un messaggio da amico ("Guarda, dai numeri che vedo, 50 min sui 10K ora come ora è tirato. Più realistico puntare a ~55 e magari rivediamo dopo qualche settimana."). Altrimenti shouldAdjust=false.
+
+DATI IMPLAUSIBILI (CRITICO):
+Se il prompt segnala "DATI IMPLAUSIBILI" con severity=impossible (es: passo sotto 2'30"/km, distanza > 80km, durata > 10h), NON celebrare la performance, NON dire "sei andato come un treno", NON usare quei numeri per la lettura tecnica. Invece:
+- in technicalReading: di' chiaramente da amico che i numeri non tornano ("Ehi, qui c'è qualcosa che non quadra: 50km in 35 min vorrebbe dire correre più veloce del record mondiale, ripetuto per un'ora. Probabile errore di inserimento — magari hai messo i metri al posto dei km, o invertito durata e distanza."). Spiega cosa potrebbe essere successo.
+- in sessionHighlight: invita a ricontrollare e re-inserire la sessione corretta.
+- in nextMove: dì che non puoi dare un consiglio finché i dati non sono attendibili, e suggerisci di correggere il log prima del prossimo allenamento.
+- planAdjustment.shouldAdjust = false sempre quando ci sono dati impossibili.
+Se invece severity=warn (numeri strani ma non impossibili), commentali con cautela ("FC media bassa per quel passo, hai una fascia o uno smartwatch nuovo? Verifica la calibrazione").`;
 
 const FORBIDDEN_WORDS = [
   "sindrome",

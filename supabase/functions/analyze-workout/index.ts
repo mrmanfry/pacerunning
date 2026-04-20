@@ -207,15 +207,17 @@ Ultimi ${(recentSameType || []).length} allenamenti dello stesso tipo (per trend
 ${recent}
 
 Sintesi storico completo (${allLogsSummary?.totalSessions || 0} sessioni):
-- Stima realistica dai log (proiezione 10K): ${allLogsSummary?.projectedTime || "n/d"} min
-- Scostamento dal target dichiarato: ${allLogsSummary?.deltaFromTarget || 0} min
+- Stima 10K dai log (Riegel + normalizzazione FC, pesata): ${allLogsSummary?.projectedTime ?? "n/d"} min
+- Banda probabile: ${allLogsSummary?.projectedLow ?? "n/d"} – ${allLogsSummary?.projectedHigh ?? "n/d"} min
+- Confidenza stima: ${allLogsSummary?.confidence ?? "n/d"} (${allLogsSummary?.usableSessions ?? 0} sessioni utili, metodo: ${allLogsSummary?.method ?? "n/d"})
+- Scostamento dal target dichiarato: ${allLogsSummary?.deltaFromTarget ?? 0} min
 
 ${nextBlock}
 
 ISTRUZIONI:
 1. Scrivi technicalReading, sessionHighlight, nextMove con tono da amico-coach (vedi system prompt). Niente paroloni.
 2. In **nextMove** DEVI ancorarti alla "Prossima sessione del piano" sopra. Cita il nome esatto della sessione. NON inventare un allenamento diverso (no "Lungo Semplice 8-10km" se nel piano c'è "Medio in progressione"). Se serve, suggerisci piccoli aggiustamenti dentro quella sessione (es: "tieni la parte progressiva sul lato basso del range FC", "se ti senti stanco riduci di 5' la parte centrale", "stai sotto i X bpm nei 20' progressivi"). Collega esplicitamente alla sessione di oggi ("visto che oggi...", "dato che hai spinto..."). Se NON c'è una prossima sessione pianificata, allora puoi proporre liberamente.
-3. Per planAdjustment: se la stima realistica differisce dal target di oltre 3 min in modo consistente, suggerisci l'adattamento da amico onesto. Meglio un target raggiungibile che uno irrealistico.
+3. Per planAdjustment: usa la "Stima 10K dai log" e la sua **confidenza**. Se confidenza è "low" (metodo "target-fallback"), NON suggerire adattamenti del target — siamo ancora in fase di calibrazione, scrivi shouldAdjust=false. Se confidenza è "medium" o "high" e la stima differisce dal target di oltre 3 min in modo consistente, suggerisci l'adattamento da amico onesto. Quando ne parli, ricorda all'utente che è una banda (es: "siamo intorno ai X', tra Y' e Z'"), non un numero secco. Meglio un target raggiungibile che uno irrealistico.
 4. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight invita SOLO a sentire un medico, da amico preoccupato.
 5. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
 }

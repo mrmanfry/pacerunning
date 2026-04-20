@@ -147,11 +147,32 @@ export function AnalysisScreen({ analysis, loading, onContinue, onAcceptAdjustme
 
         {analysis.prediction && !showAdjust && (
           <div className="bg-signal text-ink rounded-3xl p-5">
-            <div className="mono-font text-xs tracking-widest mb-2">STIMA INDICATIVA</div>
-            <div className="display-font text-5xl leading-none mb-1">~{analysis.prediction.time}</div>
-            <div className="text-sm">{analysis.prediction.text}</div>
+            <div className="mono-font text-xs tracking-widest mb-2 flex items-center justify-between gap-2">
+              <span>STIMA INDICATIVA 10K</span>
+              {analysis.prediction.confidence && (
+                <span className="px-2 py-0.5 rounded-full bg-ink text-signal text-[9px] tracking-wider">
+                  CONFIDENZA {analysis.prediction.confidence === "high" ? "ALTA" : analysis.prediction.confidence === "medium" ? "MEDIA" : "BASSA"}
+                </span>
+              )}
+            </div>
+            {analysis.prediction.confidence === "low" ? (
+              <>
+                <div className="display-font text-3xl leading-tight mb-1">Raccogliendo dati</div>
+                <div className="text-sm">{analysis.prediction.text}</div>
+              </>
+            ) : (
+              <>
+                <div className="display-font text-5xl leading-none mb-1">~{analysis.prediction.time}</div>
+                {analysis.prediction.low && analysis.prediction.high && (
+                  <div className="text-sm mb-1">
+                    Banda probabile: <span className="font-bold">{analysis.prediction.low}</span> – <span className="font-bold">{analysis.prediction.high}</span>
+                  </div>
+                )}
+                <div className="text-sm">{analysis.prediction.text}</div>
+              </>
+            )}
             <div className="text-[11px] mt-2 opacity-70">
-              Stima statistica, non una previsione. Il tempo reale dipende da molti fattori individuali.
+              Riegel + normalizzazione FC, pesata sulle sessioni recenti. Non è una previsione.
             </div>
           </div>
         )}

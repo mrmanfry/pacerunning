@@ -73,15 +73,19 @@ export async function saveProfile(userId: string, p: Profile) {
 export async function loadPlan(userId: string): Promise<Plan | null> {
   const { data, error } = await supabase
     .from("plans")
-    .select("weeks,target,adjusted_estimate")
+    .select("weeks,target,adjusted_estimate,estimate_low,estimate_high,estimate_confidence")
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
+  const d: any = data;
   return {
-    weeks: data.weeks as unknown as Plan["weeks"],
-    target: data.target,
-    adjustedEstimate: data.adjusted_estimate ? Number(data.adjusted_estimate) : null,
+    weeks: d.weeks as unknown as Plan["weeks"],
+    target: d.target,
+    adjustedEstimate: d.adjusted_estimate != null ? Number(d.adjusted_estimate) : null,
+    estimateLow: d.estimate_low != null ? Number(d.estimate_low) : null,
+    estimateHigh: d.estimate_high != null ? Number(d.estimate_high) : null,
+    estimateConfidence: (d.estimate_confidence ?? null) as Plan["estimateConfidence"],
   };
 }
 
@@ -93,7 +97,10 @@ export async function savePlan(userId: string, plan: Plan) {
         weeks: plan.weeks as unknown as never,
         target: plan.target,
         adjusted_estimate: plan.adjustedEstimate,
-      },
+        estimate_low: plan.estimateLow ?? null,
+        estimate_high: plan.estimateHigh ?? null,
+        estimate_confidence: plan.estimateConfidence ?? null,
+      } as any,
     ],
     { onConflict: "user_id" }
   );

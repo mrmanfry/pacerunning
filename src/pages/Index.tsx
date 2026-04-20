@@ -15,7 +15,7 @@ import { toast } from "@/hooks/use-toast";
 import {
   analyzeWorkout,
   checkSafetyFlags,
-  computeAdjustedEstimate,
+  computeEstimateDetail,
   computeMetrics,
   findNextSession,
   generatePlan,
@@ -153,10 +153,17 @@ const Index = () => {
       const newLogs = [...logs, fullLog];
       setLogs(newLogs);
 
-      // Compute adjusted estimate (deterministic)
+      // Compute new estimate detail (Riegel + HR + weighted)
+      const estimateDetail = computeEstimateDetail(newLogs, profile);
       let updatedPlan = plan;
-      if (newLogs.length >= 2) {
-        updatedPlan = { ...plan, adjustedEstimate: computeAdjustedEstimate(newLogs, profile) };
+      if (newLogs.length >= 1) {
+        updatedPlan = {
+          ...plan,
+          adjustedEstimate: estimateDetail.method === "riegel-hr" ? estimateDetail.estimate : null,
+          estimateLow: estimateDetail.method === "riegel-hr" ? estimateDetail.low : null,
+          estimateHigh: estimateDetail.method === "riegel-hr" ? estimateDetail.high : null,
+          estimateConfidence: estimateDetail.confidence,
+        };
         setPlan(updatedPlan);
         await savePlan(user.id, updatedPlan);
       }
@@ -169,6 +176,25 @@ const Index = () => {
       // Compute deterministic metrics first (Cap. 3.2 — sandwich layer 1)
       const baseAnalysis = analyzeWorkout(fullLog, profile, updatedPlan, newLogs);
       const computed = computeMetrics(fullLog, profile);
+
+      // Override prediction with the new weighted estimate (Riegel + HR, banded)
+      const predictionText =
+        estimateDetail.method === "target-fallback"
+          ? `Servono altre ${Math.max(0, 3 - estimateDetail.usableSessions)} sessioni di qualità per una stima affidabile dai tuoi numeri.`
+          : `Stima dai tuoi log (${estimateDetail.usableSessions} sessioni utili). Target dichiarato: ${profile.targetTime}'. ${
+              estimateDetail.estimate < profile.targetTime - 1
+                ? "I dati suggeriscono margine."
+                : estimateDetail.estimate <= profile.targetTime + 1
+                ? "I dati sono in linea col target."
+                : "I dati suggeriscono che il target era ambizioso."
+            }`;
+      baseAnalysis.prediction = {
+        time: `${estimateDetail.estimate}'`,
+        low: `${estimateDetail.low}'`,
+        high: `${estimateDetail.high}'`,
+        confidence: estimateDetail.confidence,
+        text: predictionText,
+      };
 
       // Recent same-type logs for context (last 3) — exclude skipped
       const recentSameType = newLogs
@@ -185,11 +211,16 @@ const Index = () => {
           };
         });
 
-      const projectedTime = computeAdjustedEstimate(newLogs, profile);
       const allLogsSummary = {
         totalSessions: newLogs.length,
-        projectedTime,
-        deltaFromTarget: Math.round((projectedTime - profile.targetTime) * 10) / 10,
+        projectedTime: estimateDetail.estimate,
+        projectedLow: estimateDetail.low,
+        projectedHigh: estimateDetail.high,
+        confidence: estimateDetail.confidence,
+        usableSessions: estimateDetail.usableSessions,
+        method: estimateDetail.method,
+        deltaFromTarget:
+          Math.round((estimateDetail.estimate - profile.targetTime) * 10) / 10,
       };
 
       // Pass the next planned session so the coach can ANCHOR advice on it,

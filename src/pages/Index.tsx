@@ -143,8 +143,9 @@ const Index = () => {
   const persistLog = async (log: WorkoutLog) => {
     if (!user || !profile || !plan) return;
     try {
-      await insertLog(user.id, log);
-      const newLogs = [...logs, log];
+      const inserted = await insertLog(user.id, log);
+      const fullLog: WorkoutLog = { ...log, id: inserted.id, loggedAt: inserted.loggedAt };
+      const newLogs = [...logs, fullLog];
       setLogs(newLogs);
 
       // Compute adjusted estimate (deterministic)
@@ -161,12 +162,12 @@ const Index = () => {
       setScreen("analysis");
 
       // Compute deterministic metrics first (Cap. 3.2 — sandwich layer 1)
-      const baseAnalysis = analyzeWorkout(log, profile, updatedPlan, newLogs);
-      const computed = computeMetrics(log, profile);
+      const baseAnalysis = analyzeWorkout(fullLog, profile, updatedPlan, newLogs);
+      const computed = computeMetrics(fullLog, profile);
 
       // Recent same-type logs for context (last 3)
       const recentSameType = newLogs
-        .filter((l) => l.sessionType === log.sessionType && l !== log)
+        .filter((l) => l.sessionType === fullLog.sessionType && l.id !== fullLog.id)
         .slice(-3)
         .map((l) => {
           const c = computeMetrics(l, profile);
@@ -188,7 +189,7 @@ const Index = () => {
 
       try {
         const { data: aiData, error: aiError } = await supabase.functions.invoke("analyze-workout", {
-          body: { computed, log, profile, recentSameType, allLogsSummary },
+          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary },
         });
 
         if (aiError) {
@@ -198,14 +199,33 @@ const Index = () => {
           else toast({ title: "Analisi AI non disponibile", description: "Mostro analisi base.", variant: "destructive" });
           setAnalysis(baseAnalysis);
         } else if (aiData?.analysis) {
+          const ai = aiData.analysis;
           setAnalysis({
             ...baseAnalysis,
-            technicalReading: aiData.analysis.technicalReading,
-            sessionHighlight: aiData.analysis.sessionHighlight,
-            aiNextMove: aiData.analysis.nextMove,
-            planAdjustment: aiData.analysis.planAdjustment,
+            technicalReading: ai.technicalReading,
+            sessionHighlight: ai.sessionHighlight,
+            aiNextMove: ai.nextMove,
+            planAdjustment: ai.planAdjustment,
             source: "ai",
           });
+          // Persist coach analysis tied to this log
+          try {
+            await saveAnalysis(user.id, fullLog.id!, {
+              technicalReading: ai.technicalReading ?? null,
+              sessionHighlight: ai.sessionHighlight ?? null,
+              nextMove: ai.nextMove ?? null,
+            });
+            setLastAnalysis({
+              id: "local",
+              logId: fullLog.id!,
+              technicalReading: ai.technicalReading ?? null,
+              sessionHighlight: ai.sessionHighlight ?? null,
+              nextMove: ai.nextMove ?? null,
+              createdAt: new Date().toISOString(),
+            });
+          } catch (saveErr) {
+            console.error("saveAnalysis error:", saveErr);
+          }
         } else {
           setAnalysis(baseAnalysis);
         }

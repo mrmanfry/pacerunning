@@ -169,9 +169,9 @@ const Index = () => {
       const baseAnalysis = analyzeWorkout(fullLog, profile, updatedPlan, newLogs);
       const computed = computeMetrics(fullLog, profile);
 
-      // Recent same-type logs for context (last 3)
+      // Recent same-type logs for context (last 3) — exclude skipped
       const recentSameType = newLogs
-        .filter((l) => l.sessionType === fullLog.sessionType && l.id !== fullLog.id)
+        .filter((l) => !l.skipped && l.sessionType === fullLog.sessionType && l.id !== fullLog.id)
         .slice(-3)
         .map((l) => {
           const c = computeMetrics(l, profile);

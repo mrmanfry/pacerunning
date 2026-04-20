@@ -9,12 +9,13 @@ export interface Profile {
   age: number;
   weight: number;
   sex: Sex;
-  currentBest: number;     // minutes for 10K
-  targetTime: number;      // minutes target
+  currentBest: number;     // minutes for race distance
+  targetTime: number;      // minutes target for race distance
   weeklyFreq: number;
   daysUntilRace: number;
   raceDate?: string | null; // ISO date YYYY-MM-DD
   level: Level;
+  raceDistance: number;    // km, default 10
 }
 
 export interface Session {
@@ -335,6 +336,14 @@ export function generatePlan(profile: Profile): Plan {
   const days = profile.daysUntilRace;
   const totalWeeks = Math.max(1, Math.floor(days / 7));
 
+  // "Lungo lento" duration scales with race distance (capped 60-120').
+  // Approx: 5K → 60', 10K → 70', 21K → ~95-105', marathon → 120'.
+  const raceDist = profile.raceDistance || 10;
+  const baseLong = Math.max(60, Math.min(120, Math.round(raceDist * 7)));
+  const longDuration = baseLong;
+  const longBuildDuration = Math.min(120, baseLong + 10);
+  const longIntensityDuration = Math.min(120, baseLong + 5);
+
   const baseWeek = (): Week => ({
     theme: "BASE + ATTIVAZIONE",
     sessions: [
@@ -366,10 +375,10 @@ export function generatePlan(profile: Profile): Plan {
       {
         name: "Lungo lento",
         type: "long",
-        duration: 70,
+        duration: longDuration,
         targetHR: `${z2[0]}-${z2[1] + 5}`,
         blocks: [
-          `Circa 70' di corsa continua a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
+          `Circa ${longDuration}' di corsa continua a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
           "Idratati regolarmente se hai la bottiglia",
           "Se serve camminare brevi tratti, va bene",
         ],
@@ -405,9 +414,9 @@ export function generatePlan(profile: Profile): Plan {
       {
         name: "Lungo lento",
         type: "long",
-        duration: 80,
+        duration: longBuildDuration,
         targetHR: `${z2[0]}-${z2[1] + 5}`,
-        blocks: [`Circa 80' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`, "Porta acqua se fa caldo"],
+        blocks: [`Circa ${longBuildDuration}' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`, "Porta acqua se fa caldo"],
       },
     ],
   });
@@ -441,10 +450,10 @@ export function generatePlan(profile: Profile): Plan {
       {
         name: "Lungo lento",
         type: "long",
-        duration: 75,
+        duration: longIntensityDuration,
         targetHR: `${z2[0]}-${z2[1] + 5}`,
         blocks: [
-          `Circa 75' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
+          `Circa ${longIntensityDuration}' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
           "Possibile inserire 5' di ritmo medio verso metà percorso se le gambe rispondono bene",
         ],
       },
@@ -524,7 +533,7 @@ export function generatePlan(profile: Profile): Plan {
           `Spesso si consiglia di partire controllati: primi km sotto la propria FC soglia (~${Math.round(hrMax * 0.86)} bpm indicativi)`,
           `Corpo centrale della gara: intensità medio-alta, indicativamente ${Math.round(hrMax * 0.88)}-${Math.round(hrMax * 0.92)} bpm`,
           "Finale: se senti di avere margine, puoi chiudere progressivamente",
-          `Ritmo ipotetico per ${profile.targetTime}': ${paceFromTime(profile.targetTime)}/km`,
+          `Ritmo ipotetico per ${profile.targetTime}' su ${profile.raceDistance || 10}km: ${paceFromTime(profile.targetTime, profile.raceDistance || 10)}/km`,
         ],
         notes: "Partire troppo forte è l'errore più comunemente segnalato nella letteratura amatoriale.",
       },
@@ -650,8 +659,9 @@ export function computeMetrics(log: WorkoutLog, profile: Profile): ComputedMetri
   else if (hrPctMax >= 75) { intensityZone = "Z3"; intensityLabel = "media"; }
   else if (hrPctMax >= 65) { intensityZone = "Z2"; intensityLabel = "leggera"; }
 
-  const targetPace = paceFromTime(profile.targetTime);
-  const targetPaceMin = profile.targetTime / 10;
+  const raceDist = profile.raceDistance || 10;
+  const targetPace = paceFromTime(profile.targetTime, raceDist);
+  const targetPaceMin = profile.targetTime / raceDist;
   const paceDeltaSec = Math.round((paceMinKm - targetPaceMin) * 60);
 
   return {
@@ -733,11 +743,12 @@ export function analyzeWorkout(
   }
 
   let prediction: Analysis["prediction"] = null;
+  const raceDistFallback = profile.raceDistance || 10;
   if (log.distance >= 5 && hrPct >= 70) {
-    const hrReserveRace = Math.round(c.hrMax * 0.9);
+    const hrReserveRace = Math.round(c.hrMax * (raceDistFallback >= 30 ? 0.85 : 0.9));
     const hrRatio = hrReserveRace / log.hrAvg;
     const racePaceMinKm = c.paceMinKm / Math.sqrt(hrRatio);
-    const raceTime = Math.round(racePaceMinKm * 10);
+    const raceTime = Math.round(racePaceMinKm * raceDistFallback);
     prediction = {
       time: `${raceTime}'`,
       text: `Estrapolazione statistica. Target iniziale: ${profile.targetTime}'. ${
@@ -811,21 +822,27 @@ function sessionWeight(log: WorkoutLog, daysAgo: number): number {
   return wType * wDist * wRec;
 }
 
-function singleSessionEstimate(log: WorkoutLog, hrMax: number): number | null {
+function singleSessionEstimate(log: WorkoutLog, hrMax: number, raceDist: number): number | null {
   if (!log.distance || !log.duration || !log.hrAvg) return null;
   const paceMinKm = log.duration / log.distance;
-  const hrRaceTarget = hrMax * HR_RACE_PCT;
+  // Race HR target: 90% FCmax for short/middle distances, 85% for marathon+
+  const hrRacePct = raceDist >= 30 ? 0.85 : HR_RACE_PCT;
+  const hrRaceTarget = hrMax * hrRacePct;
   // Avoid scaling explosion if the session HR is way below the race target
-  // (lent very-low intensity sessions are downweighted, but cap the scaling).
   const ratio = Math.max(0.5, Math.min(1.5, hrRaceTarget / log.hrAvg));
   const paceAtRaceHR = paceMinKm / Math.pow(ratio, HR_K);
-  const distFactor = Math.pow(10 / log.distance, RIEGEL_K - 1); // = (10/D)^0.06
-  return paceAtRaceHR * 10 * distFactor;
+  // Riegel: T2 = T1 * (D2/D1)^k → in pace*distance form
+  const distFactor = Math.pow(raceDist / log.distance, RIEGEL_K - 1);
+  let est = paceAtRaceHR * raceDist * distFactor;
+  // Soft correction: Riegel slightly overestimates beyond ~30km, nudge down 2%
+  if (raceDist > 30) est *= 0.98;
+  return est;
 }
 
 export function computeEstimateDetail(logs: WorkoutLog[], profile: Profile): EstimateDetail {
   const { hrMax } = computeZones(profile);
   const target = profile.targetTime;
+  const raceDist = profile.raceDistance || 10;
   const now = Date.now();
 
   type Item = { est: number; weight: number; daysAgo: number; type: SessionType };
@@ -837,7 +854,7 @@ export function computeEstimateDetail(logs: WorkoutLog[], profile: Profile): Est
     // typo (e.g. 50km in 35min) doesn't poison the projection.
     const plaus = checkDataPlausibility(log);
     if (!plaus.ok) continue;
-    const est = singleSessionEstimate(log, hrMax);
+    const est = singleSessionEstimate(log, hrMax, raceDist);
     if (est == null || !isFinite(est) || est <= 0) continue;
     const ts = log.loggedAt ? new Date(log.loggedAt).getTime() : now;
     const daysAgo = Math.max(0, Math.floor((now - ts) / 86400000));
@@ -903,8 +920,9 @@ export function formatTime(minutes: number): string {
   return `${m}'${String(s).padStart(2, "0")}"`;
 }
 
-export function paceFromTime(totalMinutes: number): string {
-  const paceMin = totalMinutes / 10;
+export function paceFromTime(totalMinutes: number, distanceKm: number = 10): string {
+  const d = distanceKm > 0 ? distanceKm : 10;
+  const paceMin = totalMinutes / d;
   const m = Math.floor(paceMin);
   const s = Math.round((paceMin - m) * 60);
   return `${m}'${String(s).padStart(2, "0")}"`;

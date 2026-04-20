@@ -195,14 +195,18 @@ function buildUserPrompt(args: any): string {
 ${(nextPlanned.blocks || []).map((b: string, i: number) => `  ${i + 1}. ${b}`).join("\n")}`
     : `Prossima sessione del piano: NESSUNA (piano completato — puoi suggerire liberamente cosa fare).`;
 
+  const raceDist = profile.raceDistance && profile.raceDistance > 0 ? profile.raceDistance : 10;
+  const raceDistLabel = Number.isInteger(raceDist) ? `${raceDist}K` : `${Math.round(raceDist)}K`;
+
   return `DATI PRE-CALCOLATI (NON RICALCOLARE):
 
 Profilo utente:
 - Età ${profile.age} anni, ${profile.weight}kg, ${profile.sex === "M" ? "uomo" : "donna"}
 - Livello dichiarato: ${profile.level}
 - FC max teorica (Tanaka): ${computed.hrMax} bpm
-- 10K recente dichiarato: ${profile.currentBest} min
-- Target gara: ${profile.targetTime} min (ritmo gara teorico ${computed.targetPace}/km)
+- Distanza gara: ${raceDist} km (${raceDistLabel})
+- Tempo recente dichiarato sulla distanza: ${profile.currentBest} min
+- Target gara: ${profile.targetTime} min sui ${raceDist}km (ritmo gara teorico ${computed.targetPace}/km)
 
 Sessione corrente:
 - Tipo dichiarato: ${log.sessionType} (${log.sessionName})
@@ -228,7 +232,7 @@ Ultimi ${(recentSameType || []).length} allenamenti dello stesso tipo (per trend
 ${recent}
 
 Sintesi storico completo (${allLogsSummary?.totalSessions || 0} sessioni):
-- Stima 10K dai log (Riegel + normalizzazione FC, pesata): ${allLogsSummary?.projectedTime ?? "n/d"} min
+- Stima ${raceDistLabel} dai log (Riegel + normalizzazione FC, pesata): ${allLogsSummary?.projectedTime ?? "n/d"} min
 - Banda probabile: ${allLogsSummary?.projectedLow ?? "n/d"} – ${allLogsSummary?.projectedHigh ?? "n/d"} min
 - Confidenza stima: ${allLogsSummary?.confidence ?? "n/d"} (${allLogsSummary?.usableSessions ?? 0} sessioni utili, metodo: ${allLogsSummary?.method ?? "n/d"})
 - Scostamento dal target dichiarato: ${allLogsSummary?.deltaFromTarget ?? 0} min
@@ -239,7 +243,7 @@ ISTRUZIONI:
 1. **PRIMA DI TUTTO**: controlla il blocco "Plausibilità dati". Se status è "DATI IMPLAUSIBILI", segui le regole della sezione "DATI IMPLAUSIBILI" del system prompt: NON celebrare numeri impossibili, segnala l'errore da amico, chiedi di re-inserire. Ignora le altre istruzioni di lettura performance e metti planAdjustment.shouldAdjust=false.
 2. Altrimenti, scrivi technicalReading, sessionHighlight, nextMove con tono da amico-coach (vedi system prompt). Niente paroloni.
 3. In **nextMove** DEVI ancorarti alla "Prossima sessione del piano" sopra. Cita il nome esatto della sessione. NON inventare un allenamento diverso (no "Lungo Semplice 8-10km" se nel piano c'è "Medio in progressione"). Se serve, suggerisci piccoli aggiustamenti dentro quella sessione (es: "tieni la parte progressiva sul lato basso del range FC", "se ti senti stanco riduci di 5' la parte centrale", "stai sotto i X bpm nei 20' progressivi"). Collega esplicitamente alla sessione di oggi ("visto che oggi...", "dato che hai spinto..."). Se NON c'è una prossima sessione pianificata, allora puoi proporre liberamente.
-4. Per planAdjustment: usa la "Stima 10K dai log" e la sua **confidenza**. Se confidenza è "low" (metodo "target-fallback") OPPURE i dati di oggi sono implausibili, NON suggerire adattamenti del target — siamo ancora in fase di calibrazione, scrivi shouldAdjust=false. Se confidenza è "medium" o "high" e la stima differisce dal target di oltre 3 min in modo consistente, suggerisci l'adattamento da amico onesto. Quando ne parli, ricorda all'utente che è una banda (es: "siamo intorno ai X', tra Y' e Z'"), non un numero secco. Meglio un target raggiungibile che uno irrealistico.
+4. Per planAdjustment: usa la "Stima ${raceDistLabel} dai log" e la sua **confidenza**. Se confidenza è "low" (metodo "target-fallback") OPPURE i dati di oggi sono implausibili, NON suggerire adattamenti del target — siamo ancora in fase di calibrazione, scrivi shouldAdjust=false. Se confidenza è "medium" o "high" e la stima differisce dal target di oltre 3 min in modo consistente, suggerisci l'adattamento da amico onesto. Quando ne parli, ricorda all'utente che è una banda (es: "siamo intorno ai X', tra Y' e Z'"), non un numero secco. Quando parli del ritmo gara o del target, fai sempre riferimento alla distanza ${raceDistLabel}. Meglio un target raggiungibile che uno irrealistico.
 5. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight invita SOLO a sentire un medico, da amico preoccupato.
 6. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
 }

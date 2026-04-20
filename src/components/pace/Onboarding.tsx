@@ -18,6 +18,18 @@ function defaultRaceDate(): string {
   return d.toISOString().slice(0, 10);
 }
 
+function formatDist(d: number): string {
+  if (Number.isInteger(d)) return String(d);
+  // 21.097 → "21" for short labels
+  return String(Math.round(d));
+}
+
+const DISTANCE_PRESETS = [
+  { v: 5, l: "5K" },
+  { v: 10, l: "10K" },
+  { v: 21.097, l: "21K" },
+];
+
 export function Onboarding({ onComplete }: Props) {
   const [step, setStep] = useState(0);
   const [data, setData] = useState<Profile>({
@@ -30,7 +42,10 @@ export function Onboarding({ onComplete }: Props) {
     daysUntilRace: 56,
     raceDate: defaultRaceDate(),
     level: "intermediate",
+    raceDistance: 10,
   });
+  const [customDistance, setCustomDistance] = useState<string>("");
+  const isPresetDistance = DISTANCE_PRESETS.some((p) => Math.abs(p.v - data.raceDistance) < 0.001);
 
   const showAgeWarning = data.age >= 65;
   const days = data.raceDate ? Math.max(0, daysBetween(todayISO(), data.raceDate)) : 0;
@@ -40,6 +55,19 @@ export function Onboarding({ onComplete }: Props) {
   const onRaceDateChange = (iso: string) => {
     const d = Math.max(0, daysBetween(today, iso));
     setData({ ...data, raceDate: iso, daysUntilRace: d });
+  };
+
+  const onDistancePreset = (v: number) => {
+    setData({ ...data, raceDistance: v });
+    setCustomDistance("");
+  };
+
+  const onCustomDistance = (s: string) => {
+    setCustomDistance(s);
+    const n = parseFloat(s.replace(",", "."));
+    if (!isNaN(n) && n > 0 && n <= 100) {
+      setData({ ...data, raceDistance: n });
+    }
   };
 
   let prepHint = "";
@@ -88,10 +116,15 @@ export function Onboarding({ onComplete }: Props) {
     },
     {
       title: "LIVELLO\nATTUALE",
-      subtitle: "Qual è il tuo tempo recente sui 10 km (anche una stima va bene)",
+      subtitle: `Qual è il tuo tempo recente sui ${formatDist(data.raceDistance)} km (anche una stima va bene)`,
       content: (
         <div className="space-y-6">
-          <NumberInput label="TEMPO 10K RECENTE" value={data.currentBest} onChange={(v) => setData({ ...data, currentBest: v })} unit="minuti" />
+          <NumberInput
+            label={`TEMPO ${formatDist(data.raceDistance)}K RECENTE`}
+            value={data.currentBest}
+            onChange={(v) => setData({ ...data, currentBest: v })}
+            unit="minuti"
+          />
           <SegmentedControl
             label="ESPERIENZA"
             options={[
@@ -144,7 +177,56 @@ export function Onboarding({ onComplete }: Props) {
             </div>
           </div>
 
-          <NumberInput label="TEMPO A CUI PUNTERESTI" value={data.targetTime} onChange={(v) => setData({ ...data, targetTime: v })} unit="minuti" />
+          <div>
+            <div className="mono-font text-xs tracking-widest text-stone-500 mb-2">DISTANZA GARA</div>
+            <div className="flex gap-2 bg-stone-200 rounded-full p-1 mb-2">
+              {DISTANCE_PRESETS.map((p) => (
+                <button
+                  key={p.v}
+                  onClick={() => onDistancePreset(p.v)}
+                  className={`flex-1 py-2.5 rounded-full text-sm font-semibold transition-all ${
+                    isPresetDistance && Math.abs(p.v - data.raceDistance) < 0.001
+                      ? "bg-ink text-paper"
+                      : "text-stone-600"
+                  }`}
+                >
+                  {p.l}
+                </button>
+              ))}
+              <button
+                onClick={() => {
+                  // switch to custom mode: clear preset selection, prefill with current value
+                  setCustomDistance(String(data.raceDistance));
+                }}
+                className={`flex-1 py-2.5 rounded-full text-sm font-semibold transition-all ${
+                  !isPresetDistance ? "bg-ink text-paper" : "text-stone-600"
+                }`}
+              >
+                Altro
+              </button>
+            </div>
+            {!isPresetDistance && (
+              <div className="flex items-baseline gap-3 border-b-2 border-ink pb-2 mt-3">
+                <input
+                  type="number"
+                  step="0.1"
+                  min="1"
+                  max="100"
+                  value={customDistance || data.raceDistance}
+                  onChange={(e) => onCustomDistance(e.target.value)}
+                  className="display-font text-3xl bg-transparent outline-none w-full"
+                />
+                <span className="mono-font text-sm text-stone-400">km</span>
+              </div>
+            )}
+          </div>
+
+          <NumberInput
+            label={`TEMPO TARGET SU ${formatDist(data.raceDistance)}K`}
+            value={data.targetTime}
+            onChange={(v) => setData({ ...data, targetTime: v })}
+            unit="minuti"
+          />
           <SegmentedControl
             label="ALLENAMENTI/SETTIMANA"
             options={[

@@ -69,7 +69,9 @@ export function Dashboard({
           </button>
         </div>
 
-        <div className="mb-2 mono-font text-xs tracking-widest text-stone-400">TEMPO IPOTETICO 10 KM</div>
+        <div className="mb-2 mono-font text-xs tracking-widest text-stone-400">
+          TEMPO IPOTETICO {formatRaceDistance(profile.raceDistance)} KM
+        </div>
         {(() => {
           const conf = plan.estimateConfidence ?? null;
           const hasBand =
@@ -121,7 +123,7 @@ export function Dashboard({
                 <span className="mono-font text-stone-300">
                   {formatTime(low)} – {formatTime(high)}
                 </span>{" "}
-                · ritmo centrale <span className="mono-font text-stone-300">{paceFromTime(central)}/km</span>
+                · ritmo centrale <span className="mono-font text-stone-300">{paceFromTime(central, profile.raceDistance)}/km</span>
               </div>
               <div className="mt-1 text-[10px] text-stone-500 leading-relaxed">
                 Stima Riegel + normalizzazione FC, pesata sulle sessioni recenti. Non è una previsione.
@@ -331,6 +333,12 @@ function formatPace(minPerKm: number): string {
   const m = Math.floor(minPerKm);
   const s = Math.round((minPerKm - m) * 60);
   return `${m}'${String(s).padStart(2, "0")}"`;
+}
+
+function formatRaceDistance(d: number | undefined | null): string {
+  const v = d && d > 0 ? d : 10;
+  // Show no decimals for integers (5, 10, 42), one for half-marathon-like (21.1)
+  return Number.isInteger(v) ? String(v) : v.toFixed(v < 10 ? 2 : 1).replace(/\.?0+$/, "");
 }
 
 function formatLoggedDate(iso: string): string {

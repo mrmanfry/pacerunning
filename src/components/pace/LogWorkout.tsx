@@ -33,6 +33,7 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
   const [autoFlags, setAutoFlags] = useState<AutoFlags>({});
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
+  const [extractFailed, setExtractFailed] = useState(false);
 
   const canSave = data.duration > 0 && data.distance > 0 && data.hrAvg > 0;
 
@@ -49,6 +50,7 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
     reader.readAsDataURL(file);
 
     setExtracting(true);
+    setExtractFailed(false);
     try {
       const path = await uploadWorkoutScreenshot(userId, file);
       const { data: result, error } = await supabase.functions.invoke("extract-workout-data", {
@@ -59,13 +61,15 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
         const status = (error as any).context?.status;
         if (status === 429) toast({ title: "Limite richieste raggiunto", description: "Riprova tra poco.", variant: "destructive" });
         else if (status === 402) toast({ title: "Crediti AI esauriti", description: "Aggiungi crediti per continuare.", variant: "destructive" });
-        else toast({ title: "Estrazione fallita", description: "Inserisci i dati a mano.", variant: "destructive" });
+        else toast({ title: "Estrazione fallita", description: "Inserisci i dati a mano o riprova.", variant: "destructive" });
+        setExtractFailed(true);
         return;
       }
 
       const ext = result?.extracted;
       if (!ext) {
         toast({ title: "Nessun dato leggibile", description: "Inserisci a mano.", variant: "destructive" });
+        setExtractFailed(true);
         return;
       }
 
@@ -80,12 +84,22 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
       setAutoFlags(flags);
 
       const filledCount = Object.keys(flags).length;
-      toast({
-        title: filledCount > 0 ? `Estratti ${filledCount} valori` : "Pochi dati riconosciuti",
-        description: ext.detectedApp ? `Da: ${ext.detectedApp} (confidenza ${ext.confidence})` : "Verifica i numeri prima di salvare.",
-      });
+      if (filledCount === 0) {
+        setExtractFailed(true);
+        toast({
+          title: "Nessun valore riconosciuto",
+          description: "L'AI non è riuscita a leggere i numeri. Inserisci a mano.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: `Estratti ${filledCount} valori`,
+          description: ext.detectedApp ? `Da: ${ext.detectedApp} (confidenza ${ext.confidence})` : "Verifica i numeri prima di salvare.",
+        });
+      }
     } catch (err) {
       console.error(err);
+      setExtractFailed(true);
       toast({ title: "Errore upload", description: "Riprova più tardi.", variant: "destructive" });
     } finally {
       setExtracting(false);

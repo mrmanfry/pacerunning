@@ -1,14 +1,26 @@
 import { useState } from "react";
-import { ArrowLeft, Activity, Clock, Heart, Flame, Sparkles, Info } from "lucide-react";
+import { ArrowLeft, Activity, Clock, Heart, Flame, Sparkles, Info, Camera, Loader2, Wand2 } from "lucide-react";
 import type { Session, SessionType, WorkoutLog } from "@/lib/pace-engine";
+import { uploadWorkoutScreenshot } from "@/lib/pace-repository";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 
 interface Props {
   session: { data: Session; weekIdx: number; sessionIdx: number } | null;
+  userId: string | null;
   onBack: () => void;
   onSave: (log: WorkoutLog) => void;
 }
 
-export function LogWorkout({ session, onBack, onSave }: Props) {
+type AutoFlags = {
+  duration?: boolean;
+  distance?: boolean;
+  hrAvg?: boolean;
+  hrMax?: boolean;
+  cadence?: boolean;
+};
+
+export function LogWorkout({ session, userId, onBack, onSave }: Props) {
   const [data, setData] = useState({
     duration: session?.data.duration || 45,
     distance: 5,
@@ -18,8 +30,72 @@ export function LogWorkout({ session, onBack, onSave }: Props) {
     cadence: "",
     notes: "",
   });
+  const [autoFlags, setAutoFlags] = useState<AutoFlags>({});
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [extracting, setExtracting] = useState(false);
 
   const canSave = data.duration > 0 && data.distance > 0 && data.hrAvg > 0;
+
+  const handleScreenshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userId) return;
+    if (file.size > 8 * 1024 * 1024) {
+      toast({ title: "Immagine troppo grande", description: "Massimo 8 MB.", variant: "destructive" });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+
+    setExtracting(true);
+    try {
+      const path = await uploadWorkoutScreenshot(userId, file);
+      const { data: result, error } = await supabase.functions.invoke("extract-workout-data", {
+        body: { imagePath: path, sessionType: session?.data.type ?? "freeform" },
+      });
+
+      if (error) {
+        const status = (error as any).context?.status;
+        if (status === 429) toast({ title: "Limite richieste raggiunto", description: "Riprova tra poco.", variant: "destructive" });
+        else if (status === 402) toast({ title: "Crediti AI esauriti", description: "Aggiungi crediti per continuare.", variant: "destructive" });
+        else toast({ title: "Estrazione fallita", description: "Inserisci i dati a mano.", variant: "destructive" });
+        return;
+      }
+
+      const ext = result?.extracted;
+      if (!ext) {
+        toast({ title: "Nessun dato leggibile", description: "Inserisci a mano.", variant: "destructive" });
+        return;
+      }
+
+      const newData = { ...data };
+      const flags: AutoFlags = {};
+      if (typeof ext.duration === "number") { newData.duration = Math.round(ext.duration * 100) / 100; flags.duration = true; }
+      if (typeof ext.distance === "number") { newData.distance = Math.round(ext.distance * 100) / 100; flags.distance = true; }
+      if (typeof ext.hrAvg === "number") { newData.hrAvg = ext.hrAvg; flags.hrAvg = true; }
+      if (typeof ext.hrMax === "number") { newData.hrMax = ext.hrMax; flags.hrMax = true; }
+      if (typeof ext.cadence === "number") { newData.cadence = String(ext.cadence); flags.cadence = true; }
+      setData(newData);
+      setAutoFlags(flags);
+
+      const filledCount = Object.keys(flags).length;
+      toast({
+        title: filledCount > 0 ? `Estratti ${filledCount} valori` : "Pochi dati riconosciuti",
+        description: ext.detectedApp ? `Da: ${ext.detectedApp} (confidenza ${ext.confidence})` : "Verifica i numeri prima di salvare.",
+      });
+    } catch (err) {
+      console.error(err);
+      toast({ title: "Errore upload", description: "Riprova più tardi.", variant: "destructive" });
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const updateField = (field: keyof AutoFlags, value: number | string) => {
+    setData({ ...data, [field]: value });
+    if (autoFlags[field]) setAutoFlags({ ...autoFlags, [field]: false });
+  };
 
   return (
     <div className="min-h-screen bg-paper pb-32">
@@ -38,12 +114,50 @@ export function LogWorkout({ session, onBack, onSave }: Props) {
         </p>
       </div>
 
+      {/* Screenshot import */}
+      <div className="px-6 mb-6">
+        <div className="bg-ink text-paper rounded-3xl p-5 grain">
+          <div className="mono-font text-xs tracking-widest text-signal mb-2">📸 IMPORTA DA SCREENSHOT</div>
+          <div className="text-sm text-stone-300 mb-3 leading-relaxed">
+            Carica uno screenshot da Apple Salute, Strava, Garmin... L'AI legge i numeri e compila il form.
+          </div>
+
+          {imagePreview && (
+            <div className="mb-3 rounded-2xl overflow-hidden border border-stone-700 max-h-48">
+              <img src={imagePreview} alt="Screenshot allenamento" className="w-full object-contain bg-stone-900" />
+            </div>
+          )}
+
+          <label className={`block w-full ${extracting ? "opacity-60 pointer-events-none" : "cursor-pointer"}`}>
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleScreenshot}
+              disabled={extracting || !userId}
+              className="hidden"
+            />
+            <div className="bg-signal text-ink py-3 rounded-full font-bold text-sm flex items-center justify-center gap-2 hover:bg-signal-soft transition-all">
+              {extracting ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" /> STO LEGGENDO I DATI...
+                </>
+              ) : (
+                <>
+                  <Camera size={16} /> {imagePreview ? "CAMBIA SCREENSHOT" : "SCEGLI FOTO"}
+                </>
+              )}
+            </div>
+          </label>
+        </div>
+      </div>
+
       <div className="px-6 space-y-6">
         <div className="grid grid-cols-2 gap-3">
-          <MetricCard icon={<Clock size={16} />} label="DURATA" value={data.duration} onChange={(v) => setData({ ...data, duration: v })} unit="min" />
-          <MetricCard icon={<Activity size={16} />} label="DISTANZA" value={data.distance} onChange={(v) => setData({ ...data, distance: v })} unit="km" step={0.1} />
-          <MetricCard icon={<Heart size={16} />} label="FC MEDIA" value={data.hrAvg} onChange={(v) => setData({ ...data, hrAvg: v })} unit="bpm" />
-          <MetricCard icon={<Flame size={16} />} label="FC MAX" value={data.hrMax} onChange={(v) => setData({ ...data, hrMax: v })} unit="bpm" />
+          <MetricCard icon={<Clock size={16} />} label="DURATA" value={data.duration} onChange={(v) => updateField("duration", v)} unit="min" auto={autoFlags.duration} />
+          <MetricCard icon={<Activity size={16} />} label="DISTANZA" value={data.distance} onChange={(v) => updateField("distance", v)} unit="km" step={0.1} auto={autoFlags.distance} />
+          <MetricCard icon={<Heart size={16} />} label="FC MEDIA" value={data.hrAvg} onChange={(v) => updateField("hrAvg", v)} unit="bpm" auto={autoFlags.hrAvg} />
+          <MetricCard icon={<Flame size={16} />} label="FC MAX" value={data.hrMax} onChange={(v) => updateField("hrMax", v)} unit="bpm" auto={autoFlags.hrMax} />
         </div>
 
         <div className="bg-card rounded-3xl p-5 border border-border">
@@ -70,11 +184,14 @@ export function LogWorkout({ session, onBack, onSave }: Props) {
         <div className="bg-card rounded-3xl p-5 border border-border space-y-4">
           <div className="mono-font text-xs tracking-widest text-stone-500">OPZIONALE</div>
           <div>
-            <div className="text-xs text-stone-500 mb-1">Cadenza (passi/min)</div>
+            <div className="text-xs text-stone-500 mb-1 flex items-center gap-2">
+              Cadenza (passi/min)
+              {autoFlags.cadence && <AutoBadge />}
+            </div>
             <input
               type="number"
               value={data.cadence}
-              onChange={(e) => setData({ ...data, cadence: e.target.value })}
+              onChange={(e) => updateField("cadence", e.target.value)}
               placeholder="es. 165"
               className="w-full bg-stone-50 rounded-xl px-4 py-3 outline-none text-sm mono-font"
             />
@@ -130,6 +247,14 @@ export function LogWorkout({ session, onBack, onSave }: Props) {
   );
 }
 
+function AutoBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 mono-font text-[9px] px-1.5 py-0.5 bg-signal/20 text-signal-soft rounded-full">
+      <Wand2 size={9} /> AUTO
+    </span>
+  );
+}
+
 function MetricCard({
   icon,
   label,
@@ -137,6 +262,7 @@ function MetricCard({
   onChange,
   unit,
   step = 1,
+  auto,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -144,12 +270,16 @@ function MetricCard({
   onChange: (n: number) => void;
   unit: string;
   step?: number;
+  auto?: boolean;
 }) {
   return (
-    <div className="bg-card rounded-3xl p-4 border border-border">
-      <div className="flex items-center gap-2 mb-2 text-stone-500">
-        {icon}
-        <div className="mono-font text-[10px] tracking-wider">{label}</div>
+    <div className={`bg-card rounded-3xl p-4 border ${auto ? "border-signal/60" : "border-border"}`}>
+      <div className="flex items-center justify-between mb-2 text-stone-500">
+        <div className="flex items-center gap-2">
+          {icon}
+          <div className="mono-font text-[10px] tracking-wider">{label}</div>
+        </div>
+        {auto && <AutoBadge />}
       </div>
       <div className="flex items-baseline gap-1">
         <input

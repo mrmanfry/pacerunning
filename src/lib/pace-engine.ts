@@ -1,5 +1,5 @@
-// PACE — Deterministic engine (Cap. 3 + Cap. 4 logic)
-// All training math is here, in code. No LLM does arithmetic.
+// PACE — Deterministic engine (Cap. 2 + Cap. 4 logic)
+// All training math is here, in code. The LLM only writes textual analysis.
 
 export type Sex = "M" | "F";
 export type Level = "beginner" | "intermediate" | "advanced";
@@ -13,6 +13,7 @@ export interface Profile {
   targetTime: number;      // minutes target
   weeklyFreq: number;
   daysUntilRace: number;
+  raceDate?: string | null; // ISO date YYYY-MM-DD
   level: Level;
 }
 
@@ -34,6 +35,8 @@ export interface Plan {
   weeks: Week[];
   target: number;
   adjustedEstimate: number | null;
+  shortPrep?: boolean; // true if < 3 weeks
+  veryShortPrep?: boolean; // true if < 2 weeks
 }
 
 export interface WorkoutLog {
@@ -191,7 +194,7 @@ export function checkSafetyFlags(
   return { block: false };
 }
 
-// ---------- Plan generation (Cap. 2.4) ----------
+// ---------- Plan generation (Cap. 2.4) — Adaptive phases ----------
 export function generatePlan(profile: Profile): Plan {
   const { hrMax } = computeZones(profile);
   const z2: [number, number] = [Math.round(hrMax * 0.65), Math.round(hrMax * 0.75)];
@@ -200,155 +203,240 @@ export function generatePlan(profile: Profile): Plan {
   const z5: [number, number] = [Math.round(hrMax * 0.9), Math.round(hrMax * 0.95)];
   const racePace = Math.round(hrMax * 0.88);
 
-  const numWeeks = Math.max(2, Math.min(4, Math.floor(profile.daysUntilRace / 7)));
+  const days = profile.daysUntilRace;
+  const totalWeeks = Math.max(1, Math.floor(days / 7));
+
+  const baseWeek = (): Week => ({
+    theme: "BASE + ATTIVAZIONE",
+    sessions: [
+      {
+        name: "Corsa facile + allunghi",
+        type: "easy",
+        duration: 45,
+        targetHR: `${z2[0]}-${z2[1]}`,
+        blocks: [
+          `Circa 45' di corsa continua, FC indicativa tra ${z2[0]} e ${z2[1]} bpm`,
+          "4 allunghi brevi da ~100m con camminata di recupero tra uno e l'altro",
+          "Se riesci a parlare a frasi intere, probabilmente sei nell'intensità giusta",
+        ],
+        notes: 'Gli allenamenti percepiti come "troppo facili" spesso sono quelli che fanno più differenza nel tempo, contrariamente all\'intuizione.',
+      },
+      {
+        name: "Intensità medio-alta",
+        type: "quality",
+        duration: 44,
+        targetHR: `${z4[0]}-${z4[1]}`,
+        blocks: [
+          "10' di riscaldamento progressivo",
+          `3 blocchi di 8' a intensità medio-alta (indicativamente ${z4[0]}-${z4[1]} bpm)`,
+          "3' di corsa lenta di recupero tra i blocchi",
+          "10' di defaticamento lento",
+        ],
+        notes: "Lo sforzo percepito di riferimento per questo tipo di lavoro, secondo la letteratura amatoriale, è intorno a 7/10: impegnativo ma non massimale.",
+      },
+      {
+        name: "Lungo lento",
+        type: "long",
+        duration: 70,
+        targetHR: `${z2[0]}-${z2[1] + 5}`,
+        blocks: [
+          `Circa 70' di corsa continua a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
+          "Idratati regolarmente se hai la bottiglia",
+          "Se serve camminare brevi tratti, va bene",
+        ],
+        notes: "Il lungo lento è uno degli allenamenti più citati nella letteratura amatoriale per gare di resistenza.",
+      },
+    ],
+  });
+
+  const buildWeek = (): Week => ({
+    theme: "COSTRUZIONE",
+    sessions: [
+      {
+        name: "Corsa facile",
+        type: "easy",
+        duration: 50,
+        targetHR: `${z2[0]}-${z2[1]}`,
+        blocks: [
+          `50' continui a intensità leggera (${z2[0]}-${z2[1]} bpm)`,
+          "Tieni un ritmo che permetta di respirare con il naso a tratti",
+        ],
+      },
+      {
+        name: "Medio progressivo",
+        type: "medium",
+        duration: 45,
+        targetHR: `${z3[1]}-${z4[0]}`,
+        blocks: [
+          "10' di attivazione lenta",
+          `25' a intensità che si sente ma è sostenibile (${z3[1]}-${z4[0]} bpm)`,
+          "10' di defaticamento",
+        ],
+      },
+      {
+        name: "Lungo lento",
+        type: "long",
+        duration: 80,
+        targetHR: `${z2[0]}-${z2[1] + 5}`,
+        blocks: [`Circa 80' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`, "Porta acqua se fa caldo"],
+      },
+    ],
+  });
+
+  const intensityWeek = (): Week => ({
+    theme: "INTENSITÀ + SPECIFICITÀ",
+    sessions: [
+      {
+        name: "Ripetute brevi",
+        type: "quality",
+        duration: 40,
+        targetHR: `${z5[0]}-${z5[1]}`,
+        blocks: [
+          "10' di riscaldamento",
+          `5 blocchi di 3' a intensità alta (indicativamente ${z5[0]}-${z5[1]} bpm)`,
+          "2' di corsa lenta tra i blocchi",
+          "10' di defaticamento",
+        ],
+        notes: "Respirazione decisamente accelerata ma non al limite. Se non riesci a completare un blocco, rallentare è sempre un'opzione ragionevole.",
+      },
+      {
+        name: "Corsa continua medio-alta",
+        type: "medium",
+        duration: 40,
+        targetHR: `${z3[1]}-${z4[0]}`,
+        blocks: [
+          `Circa 40' di corsa continua a intensità sostenibile (${z3[1]}-${z4[0]} bpm)`,
+          "Non deve essere faticosa come le ripetute, non facile come il lungo",
+        ],
+      },
+      {
+        name: "Lungo lento",
+        type: "long",
+        duration: 75,
+        targetHR: `${z2[0]}-${z2[1] + 5}`,
+        blocks: [
+          `Circa 75' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
+          "Possibile inserire 5' di ritmo medio verso metà percorso se le gambe rispondono bene",
+        ],
+      },
+    ],
+  });
+
+  const specificityWeek = (): Week => ({
+    theme: "RITMO GARA",
+    sessions: [
+      {
+        name: "Ritmo gara breve",
+        type: "quality",
+        duration: 45,
+        targetHR: `${racePace}`,
+        blocks: [
+          "10' di riscaldamento",
+          `3 blocchi di 6' a ritmo gara indicativo (~${racePace} bpm)`,
+          "3' di corsa lenta tra i blocchi",
+          "10' di defaticamento",
+        ],
+        notes: "Familiarizza il corpo con la sensazione del ritmo gara.",
+      },
+      {
+        name: "Corsa facile",
+        type: "easy",
+        duration: 40,
+        targetHR: `${z2[0]}-${z2[1]}`,
+        blocks: [`40' continui a intensità leggera (${z2[0]}-${z2[1]} bpm)`],
+      },
+      {
+        name: "Medio in progressione",
+        type: "medium",
+        duration: 50,
+        targetHR: `${z3[1]}-${z4[0]}`,
+        blocks: [
+          "20' di corsa facile",
+          `20' progressivi fino a ritmo gara (${z3[1]}-${z4[0]} bpm)`,
+          "10' di defaticamento",
+        ],
+      },
+    ],
+  });
+
+  const taperWeek = (): Week => ({
+    theme: "RALLENTAMENTO + GARA",
+    sessions: [
+      {
+        name: "Corsa facile",
+        type: "easy",
+        duration: 45,
+        targetHR: `${z2[0]}-${z2[1]}`,
+        blocks: [
+          `Circa 45' di corsa continua, mantenendo una FC indicativa tra ${z2[0]} e ${z2[1]} bpm`,
+          "Se ti sembra troppo facile, probabilmente è il ritmo giusto",
+          "Nella parte finale, qualche allungo breve se il corpo risponde bene",
+        ],
+        notes: "Nelle settimane che precedono una gara, la letteratura amatoriale suggerisce di alleggerire il carico.",
+      },
+      {
+        name: "Pre-gara",
+        type: "race",
+        duration: 35,
+        targetHR: `${racePace}`,
+        blocks: [
+          "10' di riscaldamento a intensità leggera",
+          `2 blocchi di circa 5' a ritmo gara indicativo (~${racePace} bpm), con 2' di corsa lenta tra l'uno e l'altro`,
+          "10' di defaticamento lento",
+        ],
+        notes: 'Questa sessione viene spesso descritta come un "promemoria" del ritmo, non un allenamento di carico.',
+      },
+      {
+        name: "Giorno gara",
+        type: "race",
+        duration: Math.round(profile.targetTime),
+        targetHR: `${racePace}`,
+        blocks: [
+          `Spesso si consiglia di partire controllati: primi km sotto la propria FC soglia (~${Math.round(hrMax * 0.86)} bpm indicativi)`,
+          `Corpo centrale della gara: intensità medio-alta, indicativamente ${Math.round(hrMax * 0.88)}-${Math.round(hrMax * 0.92)} bpm`,
+          "Finale: se senti di avere margine, puoi chiudere progressivamente",
+          `Ritmo ipotetico per ${profile.targetTime}': ${paceFromTime(profile.targetTime)}/km`,
+        ],
+        notes: "Partire troppo forte è l'errore più comunemente segnalato nella letteratura amatoriale.",
+      },
+    ],
+  });
+
   const weeks: Week[] = [];
+  let shortPrep = false;
+  let veryShortPrep = false;
 
-  for (let w = 0; w < numWeeks; w++) {
-    const isTaper = w === numWeeks - 1;
-    const isFirst = w === 0;
-
-    if (isTaper) {
-      weeks.push({
-        theme: "RALLENTAMENTO + GARA",
-        sessions: [
-          {
-            name: "Corsa facile",
-            type: "easy",
-            duration: 45,
-            targetHR: `${z2[0]}-${z2[1]}`,
-            blocks: [
-              `Circa 45' di corsa continua, mantenendo una FC indicativa tra ${z2[0]} e ${z2[1]} bpm`,
-              "Se ti sembra troppo facile, probabilmente è il ritmo giusto",
-              "Nella parte finale, qualche allungo breve se il corpo risponde bene",
-            ],
-            notes:
-              "Nelle settimane che precedono una gara, la letteratura amatoriale suggerisce tipicamente di alleggerire il carico. Il corpo ha già fatto il lavoro.",
-          },
-          {
-            name: "Pre-gara",
-            type: "race",
-            duration: 35,
-            targetHR: `${racePace}`,
-            blocks: [
-              "10' di riscaldamento a intensità leggera",
-              `2 blocchi di circa 5' a ritmo gara indicativo (~${racePace} bpm), con 2' di corsa lenta tra l'uno e l'altro`,
-              "10' di defaticamento lento",
-            ],
-            notes:
-              'Questa sessione viene spesso descritta come un "promemoria" del ritmo, non un allenamento di carico. Fermarsi prima di sentirsi stanchi è una scelta ragionevole.',
-          },
-          {
-            name: "Giorno gara",
-            type: "race",
-            duration: Math.round(profile.targetTime),
-            targetHR: `${racePace}`,
-            blocks: [
-              `Spesso si consiglia di partire controllati: primi km sotto la propria FC soglia (~${Math.round(hrMax * 0.86)} bpm indicativi)`,
-              `Corpo centrale della gara: intensità medio-alta, indicativamente ${Math.round(hrMax * 0.88)}-${Math.round(hrMax * 0.92)} bpm`,
-              "Finale: se senti di avere margine, puoi chiudere progressivamente",
-              `Ritmo ipotetico per ${profile.targetTime}': ${paceFromTime(profile.targetTime)}/km`,
-            ],
-            notes:
-              "Partire troppo forte è l'errore più comunemente segnalato nella letteratura amatoriale. Molti runner riferiscono che finire con un po' di benzina nel serbatoio rende la gara più piacevole.",
-          },
-        ],
-      });
-    } else if (isFirst) {
-      weeks.push({
-        theme: "BASE + ATTIVAZIONE",
-        sessions: [
-          {
-            name: "Corsa facile + allunghi",
-            type: "easy",
-            duration: 45,
-            targetHR: `${z2[0]}-${z2[1]}`,
-            blocks: [
-              `Circa 45' di corsa continua, FC indicativa tra ${z2[0]} e ${z2[1]} bpm`,
-              "4 allunghi brevi da ~100m con camminata di recupero tra uno e l'altro",
-              "Se riesci a parlare a frasi intere, probabilmente sei nell'intensità giusta",
-            ],
-            notes:
-              'Gli allenamenti percepiti come "troppo facili" spesso sono quelli che fanno più differenza nel tempo, contrariamente all\'intuizione.',
-          },
-          {
-            name: "Intensità medio-alta",
-            type: "quality",
-            duration: 44,
-            targetHR: `${z4[0]}-${z4[1]}`,
-            blocks: [
-              "10' di riscaldamento progressivo",
-              `3 blocchi di 8' a intensità medio-alta (indicativamente ${z4[0]}-${z4[1]} bpm)`,
-              "3' di corsa lenta di recupero tra i blocchi",
-              "10' di defaticamento lento",
-            ],
-            notes:
-              "Lo sforzo percepito di riferimento per questo tipo di lavoro, secondo la letteratura amatoriale, è intorno a 7/10: impegnativo ma non massimale. Un 9/10 sostenuto suggerisce di rallentare un po'.",
-          },
-          {
-            name: "Lungo lento",
-            type: "long",
-            duration: 70,
-            targetHR: `${z2[0]}-${z2[1] + 5}`,
-            blocks: [
-              `Circa 70' di corsa continua a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
-              "Idratati regolarmente se hai la bottiglia",
-              "Se serve camminare brevi tratti, va bene",
-            ],
-            notes:
-              "Il lungo lento è uno degli allenamenti più citati nella letteratura amatoriale per gare di resistenza. Non è pensato per essere veloce.",
-          },
-        ],
-      });
-    } else {
-      weeks.push({
-        theme: "INTENSITÀ + SPECIFICITÀ",
-        sessions: [
-          {
-            name: "Ripetute brevi",
-            type: "quality",
-            duration: 40,
-            targetHR: `${z5[0]}-${z5[1]}`,
-            blocks: [
-              "10' di riscaldamento",
-              `5 blocchi di 3' a intensità alta (indicativamente ${z5[0]}-${z5[1]} bpm)`,
-              "2' di corsa lenta tra i blocchi",
-              "10' di defaticamento",
-            ],
-            notes:
-              "Respirazione decisamente accelerata ma non al limite. Se non riesci a completare un blocco, rallentare è sempre un'opzione ragionevole.",
-          },
-          {
-            name: "Corsa continua medio-alta",
-            type: "medium",
-            duration: 40,
-            targetHR: `${z3[1]}-${z4[0]}`,
-            blocks: [
-              `Circa 40' di corsa continua a intensità che si sente ma è sostenibile (${z3[1]}-${z4[0]} bpm)`,
-              "Non deve essere faticosa come le ripetute",
-              "Non deve essere facile come il lungo",
-            ],
-            notes:
-              'La "via di mezzo" tra lento e veloce. Nella letteratura amatoriale viene citata spesso per la preparazione alle gare sui 10 km.',
-          },
-          {
-            name: "Lungo lento",
-            type: "long",
-            duration: 75,
-            targetHR: `${z2[0]}-${z2[1] + 5}`,
-            blocks: [
-              `Circa 75' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
-              "Possibile inserire 5' di ritmo medio verso metà percorso se le gambe rispondono bene",
-              "Porta acqua se fa caldo",
-            ],
-            notes:
-              "Costruisce resistenza generale. Viene indicato come più efficace di tanti allenamenti veloci concentrati in poco tempo.",
-          },
-        ],
-      });
-    }
+  if (days < 14) {
+    // Very short: only race
+    veryShortPrep = true;
+    shortPrep = true;
+    weeks.push(taperWeek());
+  } else if (totalWeeks === 2) {
+    shortPrep = true;
+    weeks.push(specificityWeek());
+    weeks.push(taperWeek());
+  } else if (totalWeeks === 3) {
+    shortPrep = true;
+    weeks.push(intensityWeek());
+    weeks.push(specificityWeek());
+    weeks.push(taperWeek());
+  } else if (totalWeeks <= 5) {
+    weeks.push(baseWeek());
+    if (totalWeeks === 5) weeks.push(buildWeek());
+    weeks.push(intensityWeek());
+    weeks.push(specificityWeek());
+    weeks.push(taperWeek());
+  } else {
+    // 6+ weeks: full plan
+    weeks.push(baseWeek());
+    const buildCount = Math.min(totalWeeks - 4, 3);
+    for (let i = 0; i < buildCount; i++) weeks.push(buildWeek());
+    weeks.push(intensityWeek());
+    weeks.push(specificityWeek());
+    weeks.push(taperWeek());
   }
 
-  return { weeks, target: profile.targetTime, adjustedEstimate: null };
+  return { weeks, target: profile.targetTime, adjustedEstimate: null, shortPrep, veryShortPrep };
 }
 
 export function findNextSession(plan: Plan, logs: WorkoutLog[]) {
@@ -362,11 +450,20 @@ export function findNextSession(plan: Plan, logs: WorkoutLog[]) {
   return null;
 }
 
-// ---------- Workout analysis (Cap. 3.3 + 3.4) ----------
+// ---------- Workout analysis (Cap. 3.3 + 3.4) — Deterministic FALLBACK ----------
+// The real analysis goes through edge function `analyze-workout` (AI sandwich).
+// This stays as offline fallback if AI is unavailable.
 export interface AnalysisInsight {
   iconKey: "wind" | "check" | "flame" | "heart" | "zap";
   title: string;
   text: string;
+}
+
+export interface PlanAdjustment {
+  shouldAdjust: boolean;
+  reason: string;
+  newTargetEstimate: number | null;
+  message: string;
 }
 
 export interface Analysis {
@@ -379,6 +476,60 @@ export interface Analysis {
   insights: AnalysisInsight[];
   prediction: { time: string; text: string } | null;
   nextMove: string;
+  // From AI:
+  technicalReading?: string;
+  sessionHighlight?: string;
+  aiNextMove?: string;
+  planAdjustment?: PlanAdjustment;
+  source?: "ai" | "fallback";
+}
+
+// ---------- Compute deterministic numbers (Cap. 3.2 sandwich layer 1) ----------
+export interface ComputedMetrics {
+  paceMinKm: number;
+  paceFormatted: string;
+  paceDeltaSec: number;
+  hrMax: number;
+  hrPctMax: number;
+  hrPctReserve: number;
+  intensityZone: string;
+  intensityLabel: string;
+  targetPace: string;
+}
+
+export function computeMetrics(log: WorkoutLog, profile: Profile): ComputedMetrics {
+  const { hrMax } = computeZones(profile);
+  const hrPctMax = Math.round((log.hrAvg / hrMax) * 100);
+  // Karvonen with estimated resting HR = 60
+  const restingHR = 60;
+  const hrPctReserve = Math.round(((log.hrAvg - restingHR) / (hrMax - restingHR)) * 100);
+  const paceMinKm = log.duration / log.distance;
+  const m = Math.floor(paceMinKm);
+  const s = Math.round((paceMinKm - m) * 60);
+  const paceFormatted = `${m}'${String(s).padStart(2, "0")}"`;
+
+  let intensityZone = "Z1";
+  let intensityLabel = "molto leggera";
+  if (hrPctMax >= 90) { intensityZone = "Z5"; intensityLabel = "alta"; }
+  else if (hrPctMax >= 85) { intensityZone = "Z4"; intensityLabel = "medio-alta"; }
+  else if (hrPctMax >= 75) { intensityZone = "Z3"; intensityLabel = "media"; }
+  else if (hrPctMax >= 65) { intensityZone = "Z2"; intensityLabel = "leggera"; }
+
+  const targetPace = paceFromTime(profile.targetTime);
+  const targetPaceMin = profile.targetTime / 10;
+  const paceDeltaSec = Math.round((paceMinKm - targetPaceMin) * 60);
+
+  return {
+    paceMinKm,
+    paceFormatted,
+    paceDeltaSec,
+    hrMax,
+    hrPctMax,
+    hrPctReserve,
+    intensityZone,
+    intensityLabel,
+    targetPace,
+  };
 }
 
 export function analyzeWorkout(
@@ -387,44 +538,36 @@ export function analyzeWorkout(
   plan: Plan,
   allLogs: WorkoutLog[]
 ): Analysis {
-  const { hrMax } = computeZones(profile);
-  const hrPct = (log.hrAvg / hrMax) * 100;
-  const paceMinKm = log.duration / log.distance;
-  const pace = `${Math.floor(paceMinKm)}'${String(Math.round((paceMinKm - Math.floor(paceMinKm)) * 60)).padStart(2, "0")}"`;
-
-  let intensityLabel = "leggera";
-  if (hrPct >= 90) intensityLabel = "alta";
-  else if (hrPct >= 85) intensityLabel = "medio-alta";
-  else if (hrPct >= 75) intensityLabel = "media";
-  else if (hrPct >= 65) intensityLabel = "leggera";
-  else intensityLabel = "molto leggera";
+  const c = computeMetrics(log, profile);
+  const hrPct = c.hrPctMax;
+  const pace = c.paceFormatted;
+  const targetType = log.sessionType;
 
   let verdictTitle = "";
   let verdictText = "";
-  const targetType = log.sessionType;
 
   if (targetType === "easy" || targetType === "long") {
     if (hrPct > 78) {
       verdictTitle = "Intensità sopra i riferimenti per un lento";
-      verdictText = `La FC media si colloca intorno al ${Math.round(hrPct)}% della FC massima teorica. Per sessioni descritte come "lente" o "facili", i riferimenti della letteratura amatoriale indicano tipicamente intensità sotto il 75%. Potrebbe essere utile rallentare nelle prossime sessioni facili — anche camminando tratti, a inizio percorso succede spesso.`;
+      verdictText = `La FC media si colloca intorno al ${hrPct}% della FC massima teorica. Per sessioni descritte come "lente", i riferimenti amatoriali indicano sotto il 75%. Potrebbe essere utile rallentare nelle prossime sessioni.`;
     } else {
       verdictTitle = "Intensità in linea con i riferimenti";
-      verdictText = `FC media intorno al ${Math.round(hrPct)}% della stima massima. Per una sessione descritta come "lenta", è nella fascia tipica descritta nella letteratura amatoriale.`;
+      verdictText = `FC media intorno al ${hrPct}% della stima massima. Per una sessione "lenta", è nella fascia tipica.`;
     }
   } else if (targetType === "quality") {
     if (hrPct >= 85 && hrPct <= 93) {
       verdictTitle = "Intensità centrata sul tipo di lavoro";
-      verdictText = `FC media intorno al ${Math.round(hrPct)}% della massima teorica, in linea con i riferimenti tipici per sessioni di lavoro intenso. Con uno sforzo percepito di ${log.rpe}/10 il quadro è coerente.`;
+      verdictText = `FC media intorno al ${hrPct}% della massima teorica. Con uno sforzo percepito di ${log.rpe}/10 il quadro è coerente.`;
     } else if (hrPct < 85) {
       verdictTitle = "Intensità sotto i riferimenti per un lavoro veloce";
-      verdictText = `Per sessioni di ripetute i riferimenti amatoriali indicano intensità sopra l'85% della FC massima. Qui la media si è fermata al ${Math.round(hrPct)}%. Può voler dire che le pause sono state lunghe, o che i blocchi intensi sono stati meno spinti.`;
+      verdictText = `Per sessioni di ripetute si indica sopra l'85% della FC massima. Qui la media si è fermata al ${hrPct}%.`;
     } else {
       verdictTitle = "Intensità elevata";
-      verdictText = `Il ${Math.round(hrPct)}% della FC massima è una fascia alta. Non è necessariamente un problema, ma se succede ripetutamente potresti arrivare stanco alle sessioni successive.`;
+      verdictText = `Il ${hrPct}% della FC massima è una fascia alta. Se succede ripetutamente potresti arrivare stanco alle sessioni successive.`;
     }
   } else {
     verdictTitle = "Lettura del dato";
-    verdictText = `FC media circa ${Math.round(hrPct)}% della massima teorica, fascia di intensità ${intensityLabel}.`;
+    verdictText = `FC media circa ${hrPct}% della massima teorica, fascia di intensità ${c.intensityLabel}.`;
   }
 
   const insights: AnalysisInsight[] = [];
@@ -435,13 +578,13 @@ export function analyzeWorkout(
       insights.push({
         iconKey: "wind",
         title: "Cadenza bassa rispetto ai riferimenti",
-        text: `${cad} passi/min è sotto la fascia che la letteratura amatoriale cita come "economica" (165-175). Passi più brevi e frequenti sono spesso più efficienti, ma non c'è urgenza di cambiarla.`,
+        text: `${cad} passi/min è sotto la fascia "economica" (165-175) della letteratura amatoriale.`,
       });
     } else if (cad >= 165) {
       insights.push({
         iconKey: "check",
         title: "Cadenza nei riferimenti tipici",
-        text: `${cad} passi/min è dentro la fascia spesso associata a una corsa economica nella letteratura amatoriale.`,
+        text: `${cad} passi/min è dentro la fascia spesso associata a una corsa economica.`,
       });
     }
   }
@@ -450,72 +593,44 @@ export function analyzeWorkout(
     insights.push({
       iconKey: "flame",
       title: "Sforzo percepito alto per una sessione lenta",
-      text:
-        "Un 8+ su un allenamento descritto come facile può segnalare stanchezza accumulata, condizioni ambientali difficili, o semplicemente una giornata storta. Ascolta il corpo nelle prossime 24-48h.",
-    });
-  }
-
-  if (log.hrMax) {
-    const hrReserve = log.hrMax - log.hrAvg;
-    if (hrReserve < 10 && (targetType === "easy" || targetType === "long")) {
-      insights.push({
-        iconKey: "heart",
-        title: "FC media e massima molto vicine",
-        text: `Media ${log.hrAvg} e massima ${log.hrMax} indicano una corsa molto piatta sull'alto. Spesso è segnale di deriva cardiaca da caldo/disidratazione o partenza troppo veloce.`,
-      });
-    }
-  }
-
-  if (paceMinKm < 5 && targetType === "easy") {
-    insights.push({
-      iconKey: "zap",
-      title: "Ritmo sostenuto per una sessione facile",
-      text: `${pace}/km è già un ritmo impegnativo. I giorni facili secondo la letteratura amatoriale dovrebbero sembrare "troppo lenti": serve quello per recuperare.`,
+      text: "Un 8+ su un allenamento descritto come facile può segnalare stanchezza accumulata.",
     });
   }
 
   let prediction: Analysis["prediction"] = null;
   if (log.distance >= 5 && hrPct >= 70) {
-    const hrReserveRace = Math.round(hrMax * 0.9);
+    const hrReserveRace = Math.round(c.hrMax * 0.9);
     const hrRatio = hrReserveRace / log.hrAvg;
-    const racePaceMinKm = paceMinKm / Math.sqrt(hrRatio);
+    const racePaceMinKm = c.paceMinKm / Math.sqrt(hrRatio);
     const raceTime = Math.round(racePaceMinKm * 10);
     prediction = {
       time: `${raceTime}'`,
-      text: `Estrapolazione statistica da questo singolo allenamento. Target iniziale: ${profile.targetTime}'. ${
+      text: `Estrapolazione statistica. Target iniziale: ${profile.targetTime}'. ${
         raceTime < profile.targetTime
           ? "I dati suggeriscono margine."
           : raceTime <= profile.targetTime + 2
           ? "I dati sono in linea."
-          : "I dati suggeriscono che l'obiettivo iniziale era ambizioso."
+          : "I dati suggeriscono che l'obiettivo era ambizioso."
       }`,
     };
   }
 
   const nextSession = findNextSession(plan, allLogs);
-  let nextMove = "";
-  if (nextSession) {
-    nextMove = `Il prossimo spunto del diario è: ${nextSession.data.name} (circa ${nextSession.data.duration}'). `;
-    if ((targetType === "easy" || targetType === "long") && hrPct > 78) {
-      nextMove +=
-        "Tieni presente che oggi sei andato un po' sopra i riferimenti per un lento: un giorno di riposo potrebbe aiutarti ad arrivare meglio alla prossima sessione.";
-    } else {
-      nextMove += "Come sempre, la sensazione del corpo batte qualsiasi indicazione dell'app.";
-    }
-  } else {
-    nextMove = "Hai completato tutti gli spunti del diario. Buona gara.";
-  }
+  let nextMove = nextSession
+    ? `Il prossimo spunto del diario è: ${nextSession.data.name} (circa ${nextSession.data.duration}').`
+    : "Hai completato tutti gli spunti del diario. Buona gara.";
 
   return {
     summary: `${log.distance} km in ${log.duration} min · ${pace}/km · FC media ${log.hrAvg} bpm`,
     pace,
     hrAvg: log.hrAvg,
-    intensityLabel,
+    intensityLabel: c.intensityLabel,
     verdictTitle,
     verdictText,
     insights,
     prediction,
     nextMove,
+    source: "fallback",
   };
 }
 
@@ -570,4 +685,11 @@ export function getTypeBg(type: SessionType): string {
     race: "bg-signal-soft",
   };
   return map[type] || "bg-stone-200";
+}
+
+export function daysBetween(fromISO: string | Date, toISO: string | Date): number {
+  const from = typeof fromISO === "string" ? new Date(fromISO) : fromISO;
+  const to = typeof toISO === "string" ? new Date(toISO) : toISO;
+  const ms = to.getTime() - from.getTime();
+  return Math.ceil(ms / 86400000);
 }

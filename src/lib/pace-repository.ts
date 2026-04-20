@@ -47,12 +47,13 @@ export async function loadProfile(userId: string): Promise<Profile | null> {
     targetTime: data.target_time,
     weeklyFreq: data.weekly_freq,
     daysUntilRace: data.days_until_race,
+    raceDate: (data as any).race_date ?? null,
     level: data.level as Profile["level"],
   };
 }
 
 export async function saveProfile(userId: string, p: Profile) {
-  const row = {
+  const row: any = {
     id: userId,
     age: p.age,
     weight: p.weight,
@@ -61,6 +62,7 @@ export async function saveProfile(userId: string, p: Profile) {
     target_time: p.targetTime,
     weekly_freq: p.weeklyFreq,
     days_until_race: p.daysUntilRace,
+    race_date: p.raceDate ?? null,
     level: p.level,
   };
   const { error } = await supabase.from("profiles").upsert(row, { onConflict: "id" });
@@ -141,6 +143,17 @@ export async function insertLog(userId: string, log: WorkoutLog) {
     safety_overridden: log.safetyOverridden ?? false,
   });
   if (error) throw error;
+}
+
+// ---------- Storage: workout screenshots ----------
+export async function uploadWorkoutScreenshot(userId: string, file: File): Promise<string> {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+  const path = `${userId}/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage
+    .from("workout-screenshots")
+    .upload(path, file, { contentType: file.type, upsert: false });
+  if (error) throw error;
+  return path;
 }
 
 // ---------- Reset (full delete for current user) ----------

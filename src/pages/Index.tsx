@@ -18,7 +18,6 @@ import {
   checkSafetyFlags,
   computeEstimateDetail,
   computeMetrics,
-  computeZones,
   findNextSession,
   generatePlan,
   getLastCompletedLog,

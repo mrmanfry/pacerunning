@@ -2,6 +2,7 @@ import { Activity, AlertTriangle, Check, ChevronRight, Info, MessageCircle, Skip
 import type { Plan, Profile, WorkoutLog, Session } from "@/lib/pace-engine";
 import { computeZones, daysBetween, findNextSession, formatTime, getTypeStyles, paceFromTime } from "@/lib/pace-engine";
 import type { StoredAnalysis } from "@/lib/pace-repository";
+import { readinessLabel, readinessDescription, type LoadState } from "@/lib/load-model";
 
 interface Props {
   profile: Profile;
@@ -9,6 +10,7 @@ interface Props {
   logs: WorkoutLog[];
   lastLog?: WorkoutLog | null;
   lastAnalysis?: StoredAnalysis | null;
+  loadState?: LoadState | null;
   onOpenSession: (s: { data: Session; weekIdx: number; sessionIdx: number }) => void;
   onLogFreeform: () => void;
   onOpenSettings: () => void;
@@ -20,11 +22,12 @@ export function Dashboard({
   logs,
   lastLog,
   lastAnalysis,
+  loadState,
   onOpenSession,
   onLogFreeform,
   onOpenSettings,
 }: Props) {
-  const zones = computeZones(profile);
+  const zones = computeZones(profile, undefined, logs);
   const completedCount = logs.length;
   const totalSessions = plan.weeks.reduce((a, w) => a + w.sessions.length, 0);
   const nextSession = findNextSession(plan, logs);

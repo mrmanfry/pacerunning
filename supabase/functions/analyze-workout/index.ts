@@ -32,7 +32,7 @@ Se nelle note l'utente parla di dolore, malessere, sintomi strani: NON interpret
 OUTPUT — 3 CAMPI, tono amico-coach:
 1. **technicalReading** (2-4 frasi): "Com'è andata davvero". Leggi cuore + ritmo + intenzione in modo umano. Es: "Il cuore è salito parecchio per essere un lento — sei stato all'80% del max. Probabilmente hai spinto più di quanto pensassi, o eri un po' stanco di base."
 2. **sessionHighlight** (2-4 frasi): "Cosa porti a casa". Cosa ha funzionato o cosa puoi sistemare, considerando note e RPE. Tono incoraggiante.
-3. **nextMove** (3-5 frasi, IMPORTANTE): "Cosa fare al prossimo allenamento". Sii CONCRETO: tipo di sessione consigliato, ritmo indicativo, FC da tenere d'occhio, durata. Collega alla sessione di oggi: "Visto che oggi hai spinto, domani vai facile: 30-40 min con cuore sotto i 140, ritmo libero — l'importante è recuperare." Se la prossima sessione del piano è già definita, conferma o suggerisci un piccolo aggiustamento.
+3. **nextMove** (3-5 frasi, IMPORTANTE): "Cosa fare al prossimo allenamento". DEVI ancorarti alla SESSIONE PIANIFICATA fornita nel prompt (campo "Prossima sessione del piano"). NON inventare un allenamento diverso. Conferma quella sessione, eventualmente suggerendo piccoli aggiustamenti (intensità, durata, FC) basati su come è andata oggi. Esempio: "Il prossimo del piano è [NOME, durata]. Visto che oggi hai spinto, fallo sull'intensità più bassa del range, FC sotto X, e se ti senti pesante riduci la parte centrale di 5'." Se NON c'è una prossima sessione pianificata (piano completato), allora puoi suggerire liberamente cosa fare.
 
 PLAN ADJUSTMENT:
 Se lo storico dice che il target gara è irrealistico (off di oltre 3 min, in più o in meno), popola planAdjustment con shouldAdjust=true, nuova stima onesta, e un messaggio da amico ("Guarda, dai numeri che vedo, 50 min sui 10K ora come ora è tirato. Più realistico puntare a ~55 e magari rivediamo dopo qualche settimana."). Altrimenti shouldAdjust=false.`;
@@ -67,14 +67,14 @@ Deno.serve(async (req) => {
     if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
 
     const body = await req.json();
-    const { computed, log, profile, recentSameType, allLogsSummary } = body || {};
+    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned } = body || {};
     if (!computed || !log || !profile) return json({ error: "Invalid payload" }, 400);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return json({ error: "AI not configured" }, 500);
 
     // Cap. 3.2 — Sandwich: passa numeri pre-calcolati
-    const userPrompt = buildUserPrompt({ computed, log, profile, recentSameType, allLogsSummary });
+    const userPrompt = buildUserPrompt({ computed, log, profile, recentSameType, allLogsSummary, nextPlanned });
 
     const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -158,13 +158,23 @@ Deno.serve(async (req) => {
 });
 
 function buildUserPrompt(args: any): string {
-  const { computed, log, profile, recentSameType, allLogsSummary } = args;
+  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned } = args;
   const recent = (recentSameType || [])
     .map(
       (r: any, i: number) =>
         `  ${i + 1}. ${r.distance}km in ${r.duration}min, FC media ${r.hrAvg} (${r.hrPctMax}% FCmax), RPE ${r.rpe}`
     )
     .join("\n") || "  (nessuno storico dello stesso tipo)";
+
+  const nextBlock = nextPlanned
+    ? `Prossima sessione del piano (settimana ${nextPlanned.weekIdx + 1}, sessione ${nextPlanned.sessionIdx + 1}):
+- Nome: ${nextPlanned.name}
+- Tipo: ${nextPlanned.type}
+- Durata prevista: ${nextPlanned.duration} min
+- FC target: ${nextPlanned.targetHR || "non specificata"} bpm
+- Spunti previsti:
+${(nextPlanned.blocks || []).map((b: string, i: number) => `  ${i + 1}. ${b}`).join("\n")}`
+    : `Prossima sessione del piano: NESSUNA (piano completato — puoi suggerire liberamente cosa fare).`;
 
   return `DATI PRE-CALCOLATI (NON RICALCOLARE):
 
@@ -200,9 +210,11 @@ Sintesi storico completo (${allLogsSummary?.totalSessions || 0} sessioni):
 - Stima realistica dai log (proiezione 10K): ${allLogsSummary?.projectedTime || "n/d"} min
 - Scostamento dal target dichiarato: ${allLogsSummary?.deltaFromTarget || 0} min
 
+${nextBlock}
+
 ISTRUZIONI:
 1. Scrivi technicalReading, sessionHighlight, nextMove con tono da amico-coach (vedi system prompt). Niente paroloni.
-2. In **nextMove** sii CONCRETO sul prossimo allenamento: tipo (lento/medio/ripetute/lungo/recupero), ritmo indicativo in min/km, FC da tenere, durata o distanza. Collega esplicitamente alla sessione di oggi ("visto che oggi...", "dato che hai spinto...", "siccome il cuore era basso..."). Se la sessione di oggi era dura → suggerisci recupero. Se era facile → puoi proporre qualcosa di più stimolante.
+2. In **nextMove** DEVI ancorarti alla "Prossima sessione del piano" sopra. Cita il nome esatto della sessione. NON inventare un allenamento diverso (no "Lungo Semplice 8-10km" se nel piano c'è "Medio in progressione"). Se serve, suggerisci piccoli aggiustamenti dentro quella sessione (es: "tieni la parte progressiva sul lato basso del range FC", "se ti senti stanco riduci di 5' la parte centrale", "stai sotto i X bpm nei 20' progressivi"). Collega esplicitamente alla sessione di oggi ("visto che oggi...", "dato che hai spinto..."). Se NON c'è una prossima sessione pianificata, allora puoi proporre liberamente.
 3. Per planAdjustment: se la stima realistica differisce dal target di oltre 3 min in modo consistente, suggerisci l'adattamento da amico onesto. Meglio un target raggiungibile che uno irrealistico.
 4. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight invita SOLO a sentire un medico, da amico preoccupato.
 5. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;

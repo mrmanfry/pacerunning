@@ -392,6 +392,7 @@ const Index = () => {
       setLogs([]);
       setLastAnalysis(null);
       setRecentAnalyses([]);
+      setLoadState(null);
       setConsentsAccepted(false);
       setScreen("frictionWall");
       toast({ title: "Tutti i tuoi dati sono stati cancellati." });
@@ -408,6 +409,7 @@ const Index = () => {
     setLogs([]);
     setLastAnalysis(null);
     setRecentAnalyses([]);
+    setLoadState(null);
     setConsentsAccepted(false);
     setScreen("auth");
   };
@@ -441,6 +443,7 @@ const Index = () => {
             logs={logs}
             lastLog={lastLog}
             lastAnalysis={lastAnalysis}
+            loadState={loadState}
             onOpenSession={(s) => {
               setSelectedSession(s);
               setScreen("session");

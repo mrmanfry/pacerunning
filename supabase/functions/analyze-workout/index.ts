@@ -166,13 +166,24 @@ Deno.serve(async (req) => {
 });
 
 function buildUserPrompt(args: any): string {
-  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned } = args;
+  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility } = args;
   const recent = (recentSameType || [])
     .map(
       (r: any, i: number) =>
         `  ${i + 1}. ${r.distance}km in ${r.duration}min, FC media ${r.hrAvg} (${r.hrPctMax}% FCmax), RPE ${r.rpe}`
     )
     .join("\n") || "  (nessuno storico dello stesso tipo)";
+
+  const plausBlock = (() => {
+    if (!plausibility || !plausibility.issues || plausibility.issues.length === 0) {
+      return "Plausibilità dati: OK (numeri nel range fisiologico).";
+    }
+    const lines = plausibility.issues
+      .map((i: any) => `  - [${i.severity.toUpperCase()}] (${i.field}) ${i.message}`)
+      .join("\n");
+    const status = plausibility.ok ? "WARN" : "DATI IMPLAUSIBILI";
+    return `Plausibilità dati: ${status}\n${lines}`;
+  })();
 
   const nextBlock = nextPlanned
     ? `Prossima sessione del piano (settimana ${nextPlanned.weekIdx + 1}, sessione ${nextPlanned.sessionIdx + 1}):

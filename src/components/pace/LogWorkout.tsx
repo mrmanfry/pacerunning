@@ -163,6 +163,12 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
               )}
             </div>
           </label>
+
+          {extractFailed && (
+            <div className="mt-3 bg-amber-500/15 border border-amber-500/40 rounded-2xl p-3 text-xs text-amber-200 leading-relaxed">
+              ⚠️ L'AI non è riuscita a leggere i numeri dallo screenshot. <strong>Controlla i campi sotto e correggili a mano</strong> prima di salvare: i valori attuali sono solo placeholder.
+            </div>
+          )}
         </div>
       </div>
 

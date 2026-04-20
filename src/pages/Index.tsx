@@ -28,6 +28,7 @@ import {
   type Session,
   type WorkoutLog,
 } from "@/lib/pace-engine";
+import { computeLoadState, buildAIPromptLoadBlock, type LoadState } from "@/lib/load-model";
 import {
   insertLog,
   loadLatestAnalysis,
@@ -73,6 +74,7 @@ const Index = () => {
   const [safetyBlock, setSafetyBlock] = useState<(SafetyResult & { pendingLog: WorkoutLog }) | null>(null);
   const [lastAnalysis, setLastAnalysis] = useState<StoredAnalysis | null>(null);
   const [recentAnalyses, setRecentAnalyses] = useState<StoredAnalysis[]>([]);
+  const [loadState, setLoadState] = useState<LoadState | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -97,6 +99,22 @@ const Index = () => {
         setLogs(lg);
         setLastAnalysis(la);
         setRecentAnalyses(ra);
+        if (p) {
+          setLoadState(
+            computeLoadState(
+              lg.map((l) => ({
+                loggedAt: l.loggedAt ?? null,
+                duration: l.duration,
+                hrAvg: l.hrAvg,
+                hrMax: l.hrMax ?? null,
+                rpe: l.rpe,
+                sessionType: l.sessionType,
+                skipped: l.skipped,
+              })),
+              { age: p.age, sex: p.sex, hrRest: p.hrRest ?? null },
+            ),
+          );
+        }
 
         if (!okConsents) setScreen("frictionWall");
         else if (!p || !pl) setScreen("onboarding");
@@ -154,6 +172,20 @@ const Index = () => {
       const newLogs = [...logs, fullLog];
       setLogs(newLogs);
 
+      // Recompute load state with the new log included
+      const loadInputs = newLogs.map((l) => ({
+        loggedAt: l.loggedAt ?? null,
+        duration: l.duration,
+        hrAvg: l.hrAvg,
+        hrMax: l.hrMax ?? null,
+        rpe: l.rpe,
+        sessionType: l.sessionType,
+        skipped: l.skipped,
+      }));
+      const profileForLoad = { age: profile.age, sex: profile.sex, hrRest: profile.hrRest ?? null };
+      const newLoadState = computeLoadState(loadInputs, profileForLoad);
+      setLoadState(newLoadState);
+
       // Compute new estimate detail (Riegel + HR + weighted)
       const estimateDetail = computeEstimateDetail(newLogs, profile);
       let updatedPlan = plan;
@@ -176,7 +208,8 @@ const Index = () => {
 
       // Compute deterministic metrics first (Cap. 3.2 — sandwich layer 1)
       const baseAnalysis = analyzeWorkout(fullLog, profile, updatedPlan, newLogs);
-      const computed = computeMetrics(fullLog, profile);
+      const computed = computeMetrics(fullLog, profile, newLogs);
+      const loadBlock = buildAIPromptLoadBlock(newLoadState);
 
       // Override prediction with the new weighted estimate (Riegel + HR, banded)
       const predictionText =
@@ -202,7 +235,7 @@ const Index = () => {
         .filter((l) => !l.skipped && l.sessionType === fullLog.sessionType && l.id !== fullLog.id)
         .slice(-3)
         .map((l) => {
-          const c = computeMetrics(l, profile);
+          const c = computeMetrics(l, profile, newLogs);
           return {
             distance: l.distance,
             duration: l.duration,
@@ -243,7 +276,7 @@ const Index = () => {
 
       try {
         const { data: aiData, error: aiError } = await supabase.functions.invoke("analyze-workout", {
-          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary, nextPlanned, plausibility },
+          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock },
         });
 
         if (aiError) {
@@ -358,6 +391,7 @@ const Index = () => {
       setLogs([]);
       setLastAnalysis(null);
       setRecentAnalyses([]);
+      setLoadState(null);
       setConsentsAccepted(false);
       setScreen("frictionWall");
       toast({ title: "Tutti i tuoi dati sono stati cancellati." });
@@ -374,6 +408,7 @@ const Index = () => {
     setLogs([]);
     setLastAnalysis(null);
     setRecentAnalyses([]);
+    setLoadState(null);
     setConsentsAccepted(false);
     setScreen("auth");
   };
@@ -407,6 +442,7 @@ const Index = () => {
             logs={logs}
             lastLog={lastLog}
             lastAnalysis={lastAnalysis}
+            loadState={loadState}
             onOpenSession={(s) => {
               setSelectedSession(s);
               setScreen("session");

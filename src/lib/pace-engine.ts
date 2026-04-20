@@ -16,6 +16,7 @@ export interface Profile {
   raceDate?: string | null; // ISO date YYYY-MM-DD
   level: Level;
   raceDistance: number;    // km, default 10
+  hrRest?: number | null;  // bpm, optional, defaults to 60 in calculations
 }
 
 export interface Session {
@@ -189,14 +190,43 @@ function formatPaceFromSec(totalSec: number): string {
 
 export interface ZonesResult {
   hrMax: number;
+  hrRest: number;
   zones: Zone[];
+  hrMaxSource: "theoretical" | "empirical" | "blended";
+  hrMaxConfidence: "low" | "medium" | "high";
+  hrMaxSampleSize: number;
 }
 
-// ---------- HR zones (Tanaka formula) ----------
+// ---------- HR zones (Karvonen with empirical HRmax when available) ----------
 // Optional `highlightFor`: highlight the zone that matches the given session type.
 // easy/freeform → leggera, long → media, medium/race → medio-alta, quality → alta.
-export function computeZones(profile: Profile, highlightFor?: SessionType): ZonesResult {
-  const hrMax = Math.round(208 - 0.7 * profile.age);
+// Optional `logs`: when provided, HRmax is estimated from observed peaks (Tanaka + p95 blending).
+export function computeZones(
+  profile: Profile,
+  highlightFor?: SessionType,
+  logs?: WorkoutLog[],
+): ZonesResult {
+  // Lazy import to avoid circular if any future split happens
+  // (load-model has zero deps on pace-engine, so direct import is fine)
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { estimateHRmax, computeZonesKarvonen } = require("./load-model") as typeof import("./load-model");
+
+  const hrMaxEst = estimateHRmax(
+    { age: profile.age, sex: profile.sex, hrRest: profile.hrRest ?? null },
+    (logs ?? []).map((l) => ({
+      loggedAt: l.loggedAt ?? null,
+      duration: l.duration,
+      hrAvg: l.hrAvg,
+      hrMax: l.hrMax ?? null,
+      rpe: l.rpe,
+      sessionType: l.sessionType,
+      skipped: l.skipped,
+    })),
+  );
+
+  const hrRestUsed = profile.hrRest != null && profile.hrRest > 0 ? profile.hrRest : 60;
+  const zoneSet = computeZonesKarvonen(hrMaxEst.value, hrRestUsed);
+
   const highlightName = (() => {
     switch (highlightFor) {
       case "easy":
@@ -210,24 +240,25 @@ export function computeZones(profile: Profile, highlightFor?: SessionType): Zone
       case "quality":
         return "Intensità alta";
       default:
-        return null; // no highlight when type is unknown
+        return null;
     }
   })();
 
-  const make = (name: string, description: string, range: string): Zone => ({
-    name,
-    description,
-    range,
-    highlight: highlightName === name,
-  });
+  const zones: Zone[] = zoneSet.zones.map((z) => ({
+    name: z.name,
+    description: z.description,
+    range: `${z.low}–${z.high}`,
+    highlight: highlightName === z.name,
+  }));
 
-  const zones: Zone[] = [
-    make("Intensità leggera", "Corsa conversazionale, recupero", `${Math.round(hrMax * 0.65)}–${Math.round(hrMax * 0.75)}`),
-    make("Intensità media", "Resistenza di base", `${Math.round(hrMax * 0.75)}–${Math.round(hrMax * 0.85)}`),
-    make("Intensità medio-alta", "Sforzo impegnativo sostenibile", `${Math.round(hrMax * 0.85)}–${Math.round(hrMax * 0.9)}`),
-    make("Intensità alta", "Tratti brevi e intensi", `${Math.round(hrMax * 0.9)}–${Math.round(hrMax * 0.95)}`),
-  ];
-  return { hrMax, zones };
+  return {
+    hrMax: hrMaxEst.value,
+    hrRest: hrRestUsed,
+    zones,
+    hrMaxSource: hrMaxEst.source,
+    hrMaxConfidence: hrMaxEst.confidence,
+    hrMaxSampleSize: hrMaxEst.sampleSize,
+  };
 }
 
 // ---------- Safety circuit breakers (Cap. 4) ----------
@@ -641,23 +672,24 @@ export interface ComputedMetrics {
   targetPace: string;
 }
 
-export function computeMetrics(log: WorkoutLog, profile: Profile): ComputedMetrics {
-  const { hrMax } = computeZones(profile);
+export function computeMetrics(log: WorkoutLog, profile: Profile, logs?: WorkoutLog[]): ComputedMetrics {
+  const { hrMax } = computeZones(profile, undefined, logs);
   const hrPctMax = Math.round((log.hrAvg / hrMax) * 100);
-  // Karvonen with estimated resting HR = 60
-  const restingHR = 60;
+  // Karvonen with user's hrRest if available, otherwise default 60
+  const restingHR = profile.hrRest != null && profile.hrRest > 0 ? profile.hrRest : 60;
   const hrPctReserve = Math.round(((log.hrAvg - restingHR) / (hrMax - restingHR)) * 100);
   const paceMinKm = log.duration / log.distance;
   const m = Math.floor(paceMinKm);
   const s = Math.round((paceMinKm - m) * 60);
   const paceFormatted = `${m}'${String(s).padStart(2, "0")}"`;
 
+  // Intensity zone derived from %HRR (Karvonen) — more robust than %HRmax
   let intensityZone = "Z1";
   let intensityLabel = "molto leggera";
-  if (hrPctMax >= 90) { intensityZone = "Z5"; intensityLabel = "alta"; }
-  else if (hrPctMax >= 85) { intensityZone = "Z4"; intensityLabel = "medio-alta"; }
-  else if (hrPctMax >= 75) { intensityZone = "Z3"; intensityLabel = "media"; }
-  else if (hrPctMax >= 65) { intensityZone = "Z2"; intensityLabel = "leggera"; }
+  if (hrPctReserve >= 92) { intensityZone = "Z5"; intensityLabel = "alta"; }
+  else if (hrPctReserve >= 85) { intensityZone = "Z4"; intensityLabel = "medio-alta"; }
+  else if (hrPctReserve >= 75) { intensityZone = "Z3"; intensityLabel = "media"; }
+  else if (hrPctReserve >= 65) { intensityZone = "Z2"; intensityLabel = "leggera"; }
 
   const raceDist = profile.raceDistance || 10;
   const targetPace = paceFromTime(profile.targetTime, raceDist);
@@ -840,7 +872,7 @@ function singleSessionEstimate(log: WorkoutLog, hrMax: number, raceDist: number)
 }
 
 export function computeEstimateDetail(logs: WorkoutLog[], profile: Profile): EstimateDetail {
-  const { hrMax } = computeZones(profile);
+  const { hrMax } = computeZones(profile, undefined, logs);
   const target = profile.targetTime;
   const raceDist = profile.raceDistance || 10;
   const now = Date.now();

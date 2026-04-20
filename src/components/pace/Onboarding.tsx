@@ -43,6 +43,7 @@ export function Onboarding({ onComplete }: Props) {
     raceDate: defaultRaceDate(),
     level: "intermediate",
     raceDistance: 10,
+    hrRest: null,
   });
   const [customDistance, setCustomDistance] = useState<string>("");
   const isPresetDistance = DISTANCE_PRESETS.some((p) => Math.abs(p.v - data.raceDistance) < 0.001);
@@ -111,6 +112,17 @@ export function Onboarding({ onComplete }: Props) {
             value={data.sex}
             onChange={(v) => setData({ ...data, sex: v as "M" | "F" })}
           />
+          <div>
+            <NumberInput
+              label="FC A RIPOSO (OPZIONALE)"
+              value={data.hrRest ?? 60}
+              onChange={(v) => setData({ ...data, hrRest: v > 0 ? v : null })}
+              unit="bpm"
+            />
+            <div className="mt-2 text-xs text-stone-500 leading-relaxed">
+              Misurabile la mattina, appena sveglio, prima di alzarti. Se non la sai lasciamo 60 — le zone saranno meno personalizzate ma comunque utili.
+            </div>
+          </div>
         </div>
       ),
     },

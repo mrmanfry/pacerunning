@@ -2,6 +2,7 @@ import { Activity, AlertTriangle, Check, ChevronRight, Info, MessageCircle, Skip
 import type { Plan, Profile, WorkoutLog, Session } from "@/lib/pace-engine";
 import { computeZones, daysBetween, findNextSession, formatTime, getTypeStyles, paceFromTime } from "@/lib/pace-engine";
 import type { StoredAnalysis } from "@/lib/pace-repository";
+import { readinessLabel, readinessDescription, type LoadState } from "@/lib/load-model";
 
 interface Props {
   profile: Profile;
@@ -9,6 +10,7 @@ interface Props {
   logs: WorkoutLog[];
   lastLog?: WorkoutLog | null;
   lastAnalysis?: StoredAnalysis | null;
+  loadState?: LoadState | null;
   onOpenSession: (s: { data: Session; weekIdx: number; sessionIdx: number }) => void;
   onLogFreeform: () => void;
   onOpenSettings: () => void;
@@ -20,11 +22,12 @@ export function Dashboard({
   logs,
   lastLog,
   lastAnalysis,
+  loadState,
   onOpenSession,
   onLogFreeform,
   onOpenSettings,
 }: Props) {
-  const zones = computeZones(profile);
+  const zones = computeZones(profile, undefined, logs);
   const completedCount = logs.length;
   const totalSessions = plan.weeks.reduce((a, w) => a + w.sessions.length, 0);
   const nextSession = findNextSession(plan, logs);
@@ -135,9 +138,34 @@ export function Dashboard({
         <div className="mt-6 grid grid-cols-3 gap-2">
           <StatTile label="GIORNI" value={daysLeft} />
           <StatTile label="SESSIONI" value={`${completedCount}/${totalSessions}`} />
-          <StatTile label="FC MAX *" value={zones.hrMax} />
+          <StatTile
+            label={loadState && loadState.readiness !== "insufficient-data" ? "FORMA" : "FC MAX"}
+            value={
+              loadState && loadState.readiness !== "insufficient-data"
+                ? `${loadState.tsb >= 0 ? "+" : ""}${loadState.tsb}`
+                : zones.hrMax
+            }
+            sub={
+              loadState && loadState.readiness !== "insufficient-data"
+                ? readinessLabel(loadState.readiness)
+                : zones.hrMaxSource === "blended"
+                ? "stima dai tuoi log"
+                : "stima da formula"
+            }
+          />
         </div>
-        <div className="mt-2 text-[10px] text-stone-500 mono-font">* stima da formula, non misurata</div>
+        {loadState && loadState.readiness !== "insufficient-data" && (
+          <div className="mt-2 text-[10px] text-stone-500 leading-relaxed">
+            {readinessDescription(loadState)}
+          </div>
+        )}
+        {(!loadState || loadState.readiness === "insufficient-data") && (
+          <div className="mt-2 text-[10px] text-stone-500 mono-font">
+            {zones.hrMaxSource === "blended"
+              ? `* FC max stimata da ${zones.hrMaxSampleSize} sessioni intense (confidenza ${zones.hrMaxConfidence === "high" ? "alta" : zones.hrMaxConfidence === "medium" ? "media" : "bassa"})`
+              : "* stima da formula, non misurata"}
+          </div>
+        )}
       </div>
 
       {/* Last workout recap */}
@@ -310,11 +338,12 @@ export function Dashboard({
   );
 }
 
-function StatTile({ label, value }: { label: string; value: string | number }) {
+function StatTile({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
     <div className="bg-stone-800/50 rounded-2xl p-3 border border-stone-700">
       <div className="mono-font text-[10px] tracking-wider text-stone-400 mb-1">{label}</div>
       <div className="display-font text-2xl text-paper">{value}</div>
+      {sub && <div className="mono-font text-[9px] text-stone-500 mt-0.5 truncate">{sub}</div>}
     </div>
   );
 }

@@ -239,9 +239,11 @@ const Index = () => {
           }
         : null;
 
+      const plausibility = checkDataPlausibility(fullLog);
+
       try {
         const { data: aiData, error: aiError } = await supabase.functions.invoke("analyze-workout", {
-          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary, nextPlanned },
+          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary, nextPlanned, plausibility },
         });
 
         if (aiError) {

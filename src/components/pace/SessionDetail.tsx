@@ -24,7 +24,7 @@ interface Props {
 }
 
 export function SessionDetail({ session, profile, loggedData, recentAnalyses, onBack, onLog, onSkip }: Props) {
-  const zones = computeZones(profile);
+  const zones = computeZones(profile, session.data.type);
   const s = session.data;
   const isCompleted = !!loggedData;
   const isSkipped = !!loggedData?.skipped;

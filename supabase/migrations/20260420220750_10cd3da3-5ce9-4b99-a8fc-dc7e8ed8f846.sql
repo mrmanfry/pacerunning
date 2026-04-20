@@ -1,0 +1,1 @@
+ALTER TABLE public.profiles ADD COLUMN race_distance numeric NOT NULL DEFAULT 10;

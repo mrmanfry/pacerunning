@@ -89,6 +89,7 @@ export type Database = {
           id: string
           level: string
           race_date: string | null
+          race_distance: number
           sex: string
           target_time: number
           updated_at: string
@@ -103,6 +104,7 @@ export type Database = {
           id: string
           level: string
           race_date?: string | null
+          race_distance?: number
           sex: string
           target_time: number
           updated_at?: string
@@ -117,6 +119,7 @@ export type Database = {
           id?: string
           level?: string
           race_date?: string | null
+          race_distance?: number
           sex?: string
           target_time?: number
           updated_at?: string

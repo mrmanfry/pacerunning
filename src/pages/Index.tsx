@@ -177,6 +177,25 @@ const Index = () => {
       const baseAnalysis = analyzeWorkout(fullLog, profile, updatedPlan, newLogs);
       const computed = computeMetrics(fullLog, profile);
 
+      // Override prediction with the new weighted estimate (Riegel + HR, banded)
+      const predictionText =
+        estimateDetail.method === "target-fallback"
+          ? `Servono altre ${Math.max(0, 3 - estimateDetail.usableSessions)} sessioni di qualità per una stima affidabile dai tuoi numeri.`
+          : `Stima dai tuoi log (${estimateDetail.usableSessions} sessioni utili). Target dichiarato: ${profile.targetTime}'. ${
+              estimateDetail.estimate < profile.targetTime - 1
+                ? "I dati suggeriscono margine."
+                : estimateDetail.estimate <= profile.targetTime + 1
+                ? "I dati sono in linea col target."
+                : "I dati suggeriscono che il target era ambizioso."
+            }`;
+      baseAnalysis.prediction = {
+        time: `${estimateDetail.estimate}'`,
+        low: `${estimateDetail.low}'`,
+        high: `${estimateDetail.high}'`,
+        confidence: estimateDetail.confidence,
+        text: predictionText,
+      };
+
       // Recent same-type logs for context (last 3) — exclude skipped
       const recentSameType = newLogs
         .filter((l) => !l.skipped && l.sessionType === fullLog.sessionType && l.id !== fullLog.id)

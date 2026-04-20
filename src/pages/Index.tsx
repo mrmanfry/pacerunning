@@ -68,6 +68,7 @@ const Index = () => {
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [safetyBlock, setSafetyBlock] = useState<(SafetyResult & { pendingLog: WorkoutLog }) | null>(null);
+  const [lastAnalysis, setLastAnalysis] = useState<StoredAnalysis | null>(null);
 
   useEffect(() => {
     if (authLoading) return;

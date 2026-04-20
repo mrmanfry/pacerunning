@@ -490,7 +490,13 @@ export interface Analysis {
   verdictTitle: string;
   verdictText: string;
   insights: AnalysisInsight[];
-  prediction: { time: string; text: string } | null;
+  prediction: {
+    time: string;
+    text: string;
+    low?: string;
+    high?: string;
+    confidence?: EstimateConfidence;
+  } | null;
   nextMove: string;
   // From AI:
   technicalReading?: string;

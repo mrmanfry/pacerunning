@@ -271,6 +271,7 @@ const Index = () => {
       setProfile(null);
       setPlan(null);
       setLogs([]);
+      setLastAnalysis(null);
       setConsentsAccepted(false);
       setScreen("frictionWall");
       toast({ title: "Tutti i tuoi dati sono stati cancellati." });
@@ -285,9 +286,19 @@ const Index = () => {
     setProfile(null);
     setPlan(null);
     setLogs([]);
+    setLastAnalysis(null);
     setConsentsAccepted(false);
     setScreen("auth");
   };
+
+  // Helper: find a logged workout for a given (weekIdx, sessionIdx)
+  const findLogFor = (weekIdx: number, sessionIdx: number): WorkoutLog | undefined =>
+    logs.find((l) => l.weekIdx === weekIdx && l.sessionIdx === sessionIdx);
+
+  const lastLog = getLastCompletedLog(logs);
+  const selectedLoggedData = selectedSession
+    ? findLogFor(selectedSession.weekIdx, selectedSession.sessionIdx)
+    : undefined;
 
   if (authLoading || screen === "loading") return <LoadingScreen />;
 

@@ -16,6 +16,7 @@ import {
   analyzeWorkout,
   checkSafetyFlags,
   computeAdjustedEstimate,
+  computeMetrics,
   generatePlan,
   type Analysis,
   type Plan,
@@ -61,9 +62,9 @@ const Index = () => {
     sessionIdx: number;
   } | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
   const [safetyBlock, setSafetyBlock] = useState<(SafetyResult & { pendingLog: WorkoutLog }) | null>(null);
 
-  // Boot: route based on auth + remote state
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
@@ -139,22 +140,101 @@ const Index = () => {
       const newLogs = [...logs, log];
       setLogs(newLogs);
 
-      const newAnalysis = analyzeWorkout(log, profile, plan, newLogs);
-      setAnalysis(newAnalysis);
-
+      // Compute adjusted estimate (deterministic)
+      let updatedPlan = plan;
       if (newLogs.length >= 2) {
-        const updated: Plan = {
-          ...plan,
-          adjustedEstimate: computeAdjustedEstimate(newLogs, profile),
-        };
-        setPlan(updated);
-        await savePlan(user.id, updated);
+        updatedPlan = { ...plan, adjustedEstimate: computeAdjustedEstimate(newLogs, profile) };
+        setPlan(updatedPlan);
+        await savePlan(user.id, updatedPlan);
       }
+
+      // Show loading screen and start AI analysis
+      setAnalysis(null);
+      setAnalysisLoading(true);
       setScreen("analysis");
+
+      // Compute deterministic metrics first (Cap. 3.2 — sandwich layer 1)
+      const baseAnalysis = analyzeWorkout(log, profile, updatedPlan, newLogs);
+      const computed = computeMetrics(log, profile);
+
+      // Recent same-type logs for context (last 3)
+      const recentSameType = newLogs
+        .filter((l) => l.sessionType === log.sessionType && l !== log)
+        .slice(-3)
+        .map((l) => {
+          const c = computeMetrics(l, profile);
+          return {
+            distance: l.distance,
+            duration: l.duration,
+            hrAvg: l.hrAvg,
+            hrPctMax: c.hrPctMax,
+            rpe: l.rpe,
+          };
+        });
+
+      const projectedTime = computeAdjustedEstimate(newLogs, profile);
+      const allLogsSummary = {
+        totalSessions: newLogs.length,
+        projectedTime,
+        deltaFromTarget: Math.round((projectedTime - profile.targetTime) * 10) / 10,
+      };
+
+      try {
+        const { data: aiData, error: aiError } = await supabase.functions.invoke("analyze-workout", {
+          body: { computed, log, profile, recentSameType, allLogsSummary },
+        });
+
+        if (aiError) {
+          const status = (aiError as any).context?.status;
+          if (status === 429) toast({ title: "Limite richieste AI", description: "Mostro analisi base.", variant: "destructive" });
+          else if (status === 402) toast({ title: "Crediti AI esauriti", description: "Mostro analisi base.", variant: "destructive" });
+          else toast({ title: "Analisi AI non disponibile", description: "Mostro analisi base.", variant: "destructive" });
+          setAnalysis(baseAnalysis);
+        } else if (aiData?.analysis) {
+          setAnalysis({
+            ...baseAnalysis,
+            technicalReading: aiData.analysis.technicalReading,
+            sessionHighlight: aiData.analysis.sessionHighlight,
+            aiNextMove: aiData.analysis.nextMove,
+            planAdjustment: aiData.analysis.planAdjustment,
+            source: "ai",
+          });
+        } else {
+          setAnalysis(baseAnalysis);
+        }
+      } catch (err) {
+        console.error("AI analysis error:", err);
+        setAnalysis(baseAnalysis);
+      } finally {
+        setAnalysisLoading(false);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore nel salvataggio";
+      toast({ title: msg, variant: "destructive" });
+      setAnalysisLoading(false);
+    }
+  };
+
+  const acceptAdjustment = async () => {
+    if (!user || !profile || !plan || !analysis?.planAdjustment?.newTargetEstimate) return;
+    const newTarget = Math.round(analysis.planAdjustment.newTargetEstimate);
+    try {
+      const updatedProfile: Profile = { ...profile, targetTime: newTarget };
+      const updatedPlan: Plan = { ...plan, target: newTarget, adjustedEstimate: newTarget };
+      await Promise.all([saveProfile(user.id, updatedProfile), savePlan(user.id, updatedPlan)]);
+      setProfile(updatedProfile);
+      setPlan(updatedPlan);
+      setAnalysis({ ...analysis, planAdjustment: { ...analysis.planAdjustment, shouldAdjust: false } });
+      toast({ title: "Target aggiornato", description: `Nuovo obiettivo: ${newTarget}'` });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Errore nel salvataggio";
       toast({ title: msg, variant: "destructive" });
     }
+  };
+
+  const ignoreAdjustment = () => {
+    if (!analysis?.planAdjustment) return;
+    setAnalysis({ ...analysis, planAdjustment: { ...analysis.planAdjustment, shouldAdjust: false } });
   };
 
   const resetAll = async () => {
@@ -182,7 +262,6 @@ const Index = () => {
     setScreen("auth");
   };
 
-  // ---------- Render ----------
   if (authLoading || screen === "loading") return <LoadingScreen />;
 
   return (
@@ -225,6 +304,7 @@ const Index = () => {
         {screen === "logWorkout" && (
           <LogWorkout
             session={selectedSession}
+            userId={user?.id ?? null}
             onBack={() => setScreen(selectedSession ? "session" : "dashboard")}
             onSave={saveLog}
           />
@@ -246,7 +326,13 @@ const Index = () => {
         )}
 
         {screen === "analysis" && (
-          <AnalysisScreen analysis={analysis} onContinue={() => setScreen("dashboard")} />
+          <AnalysisScreen
+            analysis={analysis}
+            loading={analysisLoading}
+            onContinue={() => setScreen("dashboard")}
+            onAcceptAdjustment={acceptAdjustment}
+            onIgnoreAdjustment={ignoreAdjustment}
+          />
         )}
 
         {screen === "settings" && (

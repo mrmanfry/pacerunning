@@ -1,9 +1,21 @@
 import { useState } from "react";
-import { ChevronRight, AlertTriangle, Info } from "lucide-react";
+import { ChevronRight, AlertTriangle, Info, CalendarIcon } from "lucide-react";
 import type { Profile } from "@/lib/pace-engine";
+import { daysBetween } from "@/lib/pace-engine";
 
 interface Props {
   onComplete: (p: Profile) => void;
+}
+
+function todayISO(): string {
+  const d = new Date();
+  return d.toISOString().slice(0, 10);
+}
+
+function defaultRaceDate(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 56); // 8 weeks default
+  return d.toISOString().slice(0, 10);
 }
 
 export function Onboarding({ onComplete }: Props) {
@@ -15,11 +27,36 @@ export function Onboarding({ onComplete }: Props) {
     currentBest: 58,
     targetTime: 55,
     weeklyFreq: 3,
-    daysUntilRace: 18,
+    daysUntilRace: 56,
+    raceDate: defaultRaceDate(),
     level: "intermediate",
   });
 
   const showAgeWarning = data.age >= 65;
+  const days = data.raceDate ? Math.max(0, daysBetween(todayISO(), data.raceDate)) : 0;
+  const weeks = Math.max(1, Math.floor(days / 7));
+  const today = todayISO();
+
+  const onRaceDateChange = (iso: string) => {
+    const d = Math.max(0, daysBetween(today, iso));
+    setData({ ...data, raceDate: iso, daysUntilRace: d });
+  };
+
+  let prepHint = "";
+  let prepHintTone: "ok" | "warn" | "alert" = "ok";
+  if (days < 14) {
+    prepHint = "⚠ Tempi molto stretti: il diario sarà essenziale e il target andrà preso come orientativo.";
+    prepHintTone = "alert";
+  } else if (weeks < 4) {
+    prepHint = "Preparazione breve: piano conservativo, focus sul ritmo gara.";
+    prepHintTone = "warn";
+  } else if (weeks >= 6) {
+    prepHint = "Tempi ottimi per una preparazione completa.";
+    prepHintTone = "ok";
+  } else {
+    prepHint = "Piano standard con costruzione e specificità.";
+    prepHintTone = "ok";
+  }
 
   const steps = [
     {
@@ -76,10 +113,37 @@ export function Onboarding({ onComplete }: Props) {
     },
     {
       title: "LA TUA\nGARA",
-      subtitle: "Quando vuoi correre e a che tempo ti piacerebbe puntare",
+      subtitle: "Quando si corre e a che tempo ti piacerebbe puntare",
       content: (
         <div className="space-y-6">
-          <NumberInput label="GIORNI ALLA GARA" value={data.daysUntilRace} onChange={(v) => setData({ ...data, daysUntilRace: v })} unit="giorni" />
+          <div>
+            <div className="mono-font text-xs tracking-widest text-stone-500 mb-2">DATA DELLA GARA</div>
+            <div className="flex items-center gap-3 border-b-2 border-ink pb-2">
+              <CalendarIcon size={20} className="text-stone-500" />
+              <input
+                type="date"
+                value={data.raceDate || ""}
+                min={today}
+                onChange={(e) => onRaceDateChange(e.target.value)}
+                className="display-font text-3xl bg-transparent outline-none w-full mono-font"
+              />
+            </div>
+            <div
+              className={`mt-3 rounded-2xl p-3 text-xs leading-relaxed ${
+                prepHintTone === "alert"
+                  ? "bg-red-50 border border-red-200 text-red-900"
+                  : prepHintTone === "warn"
+                  ? "bg-amber-50 border border-amber-200 text-amber-900"
+                  : "bg-emerald-50 border border-emerald-200 text-emerald-900"
+              }`}
+            >
+              <div className="mono-font font-bold mb-1">
+                MANCANO {days} GIORNI · ~{weeks} {weeks === 1 ? "SETTIMANA" : "SETTIMANE"}
+              </div>
+              <div>{prepHint}</div>
+            </div>
+          </div>
+
           <NumberInput label="TEMPO A CUI PUNTERESTI" value={data.targetTime} onChange={(v) => setData({ ...data, targetTime: v })} unit="minuti" />
           <SegmentedControl
             label="ALLENAMENTI/SETTIMANA"
@@ -98,6 +162,7 @@ export function Onboarding({ onComplete }: Props) {
 
   const current = steps[step];
   const progress = ((step + 1) / steps.length) * 100;
+  const canAdvance = step !== 2 || (data.raceDate && days > 0);
 
   return (
     <div className="min-h-screen bg-paper flex flex-col">
@@ -114,11 +179,14 @@ export function Onboarding({ onComplete }: Props) {
       <div className="flex-1 px-6">{current.content}</div>
       <div className="p-6">
         <button
+          disabled={!canAdvance}
           onClick={() => {
             if (step < steps.length - 1) setStep(step + 1);
             else onComplete(data);
           }}
-          className="w-full bg-ink text-paper py-5 rounded-full font-bold tracking-wide flex items-center justify-center gap-2 hover:bg-ink-soft transition-all active:scale-[0.98]"
+          className={`w-full py-5 rounded-full font-bold tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${
+            canAdvance ? "bg-ink text-paper hover:bg-ink-soft" : "bg-stone-300 text-stone-500"
+          }`}
         >
           {step < steps.length - 1 ? "AVANTI" : "CREA IL DIARIO"} <ChevronRight size={20} />
         </button>

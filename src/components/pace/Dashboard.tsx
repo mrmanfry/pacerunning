@@ -1,6 +1,6 @@
-import { Activity, Check, ChevronRight, Info } from "lucide-react";
+import { Activity, AlertTriangle, Check, ChevronRight, Info } from "lucide-react";
 import type { Plan, Profile, WorkoutLog, Session } from "@/lib/pace-engine";
-import { computeZones, findNextSession, formatTime, getTypeStyles, paceFromTime } from "@/lib/pace-engine";
+import { computeZones, daysBetween, findNextSession, formatTime, getTypeStyles, paceFromTime } from "@/lib/pace-engine";
 
 interface Props {
   profile: Profile;
@@ -18,8 +18,32 @@ export function Dashboard({ profile, plan, logs, onOpenSession, onLogFreeform, o
   const nextSession = findNextSession(plan, logs);
   const displayTime = plan.adjustedEstimate || profile.targetTime;
 
+  // Real days remaining from raceDate
+  const today = new Date().toISOString().slice(0, 10);
+  const daysLeft = profile.raceDate
+    ? Math.max(0, daysBetween(today, profile.raceDate))
+    : profile.daysUntilRace;
+
   return (
     <div className="min-h-screen bg-paper pb-28">
+      {/* Short prep warning */}
+      {plan.veryShortPrep && (
+        <div className="bg-red-50 border-b border-red-200 px-6 py-3 flex gap-3">
+          <AlertTriangle size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-red-900 leading-relaxed">
+            <strong>Tempi molto stretti.</strong> La gara è tra meno di 2 settimane: il diario è essenziale e il target deve essere considerato orientativo.
+          </div>
+        </div>
+      )}
+      {!plan.veryShortPrep && plan.shortPrep && (
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-3 flex gap-3">
+          <AlertTriangle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-amber-900 leading-relaxed">
+            <strong>Preparazione breve.</strong> Approccio conservativo: meglio arrivare riposati che spingere troppo.
+          </div>
+        </div>
+      )}
+
       <div className="bg-ink text-paper p-6 pt-12 grain rounded-b-3xl">
         <div className="flex items-center justify-between mb-6">
           <div className="mono-font text-xs tracking-widest text-signal">▲ PACE / DIARIO</div>
@@ -41,7 +65,7 @@ export function Dashboard({ profile, plan, logs, onOpenSession, onLogFreeform, o
         </div>
 
         <div className="mt-6 grid grid-cols-3 gap-2">
-          <StatTile label="GIORNI" value={Math.max(0, profile.daysUntilRace - completedCount * 2)} />
+          <StatTile label="GIORNI" value={daysLeft} />
           <StatTile label="SESSIONI" value={`${completedCount}/${totalSessions}`} />
           <StatTile label="FC MAX *" value={zones.hrMax} />
         </div>

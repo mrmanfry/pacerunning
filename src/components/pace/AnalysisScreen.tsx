@@ -1,4 +1,4 @@
-import { Check, Flame, Heart, Info, Wind, Zap } from "lucide-react";
+import { Check, Flame, Heart, Info, Wind, Zap, Loader2, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 import type { Analysis } from "@/lib/pace-engine";
 
 const iconMap = {
@@ -11,16 +11,41 @@ const iconMap = {
 
 interface Props {
   analysis: Analysis | null;
+  loading?: boolean;
   onContinue: () => void;
+  onAcceptAdjustment?: () => void;
+  onIgnoreAdjustment?: () => void;
 }
 
-export function AnalysisScreen({ analysis, onContinue }: Props) {
+export function AnalysisScreen({ analysis, loading, onContinue, onAcceptAdjustment, onIgnoreAdjustment }: Props) {
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-ink text-paper flex flex-col items-center justify-center grain px-6">
+        <Loader2 size={48} className="text-signal animate-spin mb-6" />
+        <div className="mono-font text-xs tracking-widest text-signal mb-2">▲ ANALISI IN CORSO</div>
+        <h2 className="display-font text-4xl text-center leading-tight mb-3">
+          STO LEGGENDO
+          <br />
+          I TUOI DATI
+        </h2>
+        <p className="text-stone-400 text-sm text-center max-w-xs">
+          L'AI confronta questa sessione con il tuo storico per darti una lettura descrittiva.
+        </p>
+      </div>
+    );
+  }
+
   if (!analysis) return null;
+
+  const adj = analysis.planAdjustment;
+  const showAdjust = adj?.shouldAdjust && typeof adj?.newTargetEstimate === "number";
 
   return (
     <div className="min-h-screen bg-ink text-paper pb-28 grain">
       <div className="p-6 pt-12">
-        <div className="mono-font text-xs tracking-widest text-signal mb-2">▲ LETTURA / DESCRITTIVA</div>
+        <div className="mono-font text-xs tracking-widest text-signal mb-2">
+          ▲ LETTURA / DESCRITTIVA {analysis.source === "ai" && "· AI"}
+        </div>
         <h2 className="display-font text-5xl leading-tight mb-2">
           COSA
           <br />
@@ -36,15 +61,32 @@ export function AnalysisScreen({ analysis, onContinue }: Props) {
           <Stat label="INTENSITÀ" value={analysis.intensityLabel} unit="" />
         </div>
 
-        <div className="bg-stone-800 border border-stone-700 rounded-3xl p-5">
-          <div className="mono-font text-xs tracking-widest mb-2 text-stone-400">OSSERVAZIONE</div>
-          <div className="text-lg font-bold mb-2">{analysis.verdictTitle}</div>
-          <div className="text-sm text-stone-300 leading-relaxed">{analysis.verdictText}</div>
-        </div>
+        {/* AI Technical Reading (Cap. 3.4) */}
+        {analysis.technicalReading ? (
+          <div className="bg-stone-800 border border-stone-700 rounded-3xl p-5">
+            <div className="mono-font text-xs tracking-widest mb-2 text-signal">▼ LETTURA TECNICA</div>
+            <div className="text-sm text-stone-200 leading-relaxed whitespace-pre-line">{analysis.technicalReading}</div>
+          </div>
+        ) : (
+          <div className="bg-stone-800 border border-stone-700 rounded-3xl p-5">
+            <div className="mono-font text-xs tracking-widest mb-2 text-stone-400">OSSERVAZIONE</div>
+            <div className="text-lg font-bold mb-2">{analysis.verdictTitle}</div>
+            <div className="text-sm text-stone-300 leading-relaxed">{analysis.verdictText}</div>
+          </div>
+        )}
 
+        {/* AI Session Highlight */}
+        {analysis.sessionHighlight && (
+          <div className="bg-stone-800 border border-stone-700 rounded-3xl p-5">
+            <div className="mono-font text-xs tracking-widest mb-2 text-signal">▼ HIGHLIGHT DELLA SESSIONE</div>
+            <div className="text-sm text-stone-200 leading-relaxed whitespace-pre-line">{analysis.sessionHighlight}</div>
+          </div>
+        )}
+
+        {/* Deterministic insights (always shown if present) */}
         {analysis.insights.length > 0 && (
           <div>
-            <div className="mono-font text-xs tracking-widest text-stone-400 mb-3">▼ SPUNTI DI LETTURA</div>
+            <div className="mono-font text-xs tracking-widest text-stone-400 mb-3">▼ SPUNTI DAI DATI</div>
             <div className="space-y-2">
               {analysis.insights.map((ins, i) => {
                 const Icon = iconMap[ins.iconKey];
@@ -64,7 +106,46 @@ export function AnalysisScreen({ analysis, onContinue }: Props) {
           </div>
         )}
 
-        {analysis.prediction && (
+        {/* Plan adjustment (NEW) */}
+        {showAdjust && (
+          <div className="bg-signal text-ink rounded-3xl p-5">
+            <div className="mono-font text-xs tracking-widest mb-2 flex items-center gap-2">
+              📋 ADATTAMENTO PIANO
+            </div>
+            <div className="display-font text-4xl leading-none mb-2 flex items-center gap-2">
+              {adj!.newTargetEstimate! > analysis.hrAvg ? null : null}
+              ~{adj!.newTargetEstimate}'
+              {analysis.prediction && adj!.newTargetEstimate! > parseInt(analysis.prediction.time) ? (
+                <TrendingUp size={28} />
+              ) : (
+                <TrendingDown size={28} />
+              )}
+            </div>
+            <div className="text-sm leading-relaxed mb-4">{adj!.message}</div>
+            {(onAcceptAdjustment || onIgnoreAdjustment) && (
+              <div className="flex gap-2">
+                {onAcceptAdjustment && (
+                  <button
+                    onClick={onAcceptAdjustment}
+                    className="flex-1 bg-ink text-paper py-2.5 rounded-full font-bold text-xs tracking-wider hover:bg-ink-soft transition-all"
+                  >
+                    ACCETTA NUOVO TARGET
+                  </button>
+                )}
+                {onIgnoreAdjustment && (
+                  <button
+                    onClick={onIgnoreAdjustment}
+                    className="px-4 bg-ink/10 text-ink py-2.5 rounded-full font-bold text-xs tracking-wider hover:bg-ink/20 transition-all"
+                  >
+                    IGNORA
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {analysis.prediction && !showAdjust && (
           <div className="bg-signal text-ink rounded-3xl p-5">
             <div className="mono-font text-xs tracking-widest mb-2">STIMA INDICATIVA</div>
             <div className="display-font text-5xl leading-none mb-1">~{analysis.prediction.time}</div>
@@ -75,9 +156,14 @@ export function AnalysisScreen({ analysis, onContinue }: Props) {
           </div>
         )}
 
+        {/* Next move (AI preferred, fallback to deterministic) */}
         <div className="bg-stone-800 border border-stone-700 rounded-3xl p-5">
-          <div className="mono-font text-xs tracking-widest text-signal mb-2">▼ RIFLESSIONE</div>
-          <div className="text-sm leading-relaxed">{analysis.nextMove}</div>
+          <div className="mono-font text-xs tracking-widest text-signal mb-2 flex items-center gap-2">
+            <Sparkles size={12} /> SPUNTO OPERATIVO
+          </div>
+          <div className="text-sm leading-relaxed whitespace-pre-line">
+            {analysis.aiNextMove || analysis.nextMove}
+          </div>
         </div>
 
         <div className="bg-stone-800/50 border border-stone-700 rounded-2xl p-4 flex gap-3">

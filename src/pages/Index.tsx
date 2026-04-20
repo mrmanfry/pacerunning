@@ -318,6 +318,8 @@ const Index = () => {
             profile={profile}
             plan={plan}
             logs={logs}
+            lastLog={lastLog}
+            lastAnalysis={lastAnalysis}
             onOpenSession={(s) => {
               setSelectedSession(s);
               setScreen("session");
@@ -334,6 +336,7 @@ const Index = () => {
           <SessionDetail
             session={selectedSession}
             profile={profile}
+            loggedData={selectedLoggedData}
             onBack={() => setScreen("dashboard")}
             onLog={() => setScreen("logWorkout")}
           />

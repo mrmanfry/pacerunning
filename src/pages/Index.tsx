@@ -18,6 +18,7 @@ import {
   checkSafetyFlags,
   computeEstimateDetail,
   computeMetrics,
+  computeZones,
   findNextSession,
   generatePlan,
   getLastCompletedLog,
@@ -28,6 +29,7 @@ import {
   type Session,
   type WorkoutLog,
 } from "@/lib/pace-engine";
+import { computeLoadState, buildAIPromptLoadBlock, type LoadState } from "@/lib/load-model";
 import {
   insertLog,
   loadLatestAnalysis,
@@ -73,6 +75,7 @@ const Index = () => {
   const [safetyBlock, setSafetyBlock] = useState<(SafetyResult & { pendingLog: WorkoutLog }) | null>(null);
   const [lastAnalysis, setLastAnalysis] = useState<StoredAnalysis | null>(null);
   const [recentAnalyses, setRecentAnalyses] = useState<StoredAnalysis[]>([]);
+  const [loadState, setLoadState] = useState<LoadState | null>(null);
 
   useEffect(() => {
     if (authLoading) return;

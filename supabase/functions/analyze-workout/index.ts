@@ -248,13 +248,16 @@ Sintesi storico completo (${allLogsSummary?.totalSessions || 0} sessioni):
 
 ${nextBlock}
 
+${loadStateBlock}
+
 ISTRUZIONI:
 1. **PRIMA DI TUTTO**: controlla il blocco "Plausibilità dati". Se status è "DATI IMPLAUSIBILI", segui le regole della sezione "DATI IMPLAUSIBILI" del system prompt: NON celebrare numeri impossibili, segnala l'errore da amico, chiedi di re-inserire. Ignora le altre istruzioni di lettura performance e metti planAdjustment.shouldAdjust=false.
-2. Altrimenti, scrivi technicalReading, sessionHighlight, nextMove con tono da amico-coach (vedi system prompt). Niente paroloni.
-3. In **nextMove** DEVI ancorarti alla "Prossima sessione del piano" sopra. Cita il nome esatto della sessione. NON inventare un allenamento diverso (no "Lungo Semplice 8-10km" se nel piano c'è "Medio in progressione"). Se serve, suggerisci piccoli aggiustamenti dentro quella sessione (es: "tieni la parte progressiva sul lato basso del range FC", "se ti senti stanco riduci di 5' la parte centrale", "stai sotto i X bpm nei 20' progressivi"). Collega esplicitamente alla sessione di oggi ("visto che oggi...", "dato che hai spinto..."). Se NON c'è una prossima sessione pianificata, allora puoi proporre liberamente.
-4. Per planAdjustment: usa la "Stima ${raceDistLabel} dai log" e la sua **confidenza**. Se confidenza è "low" (metodo "target-fallback") OPPURE i dati di oggi sono implausibili, NON suggerire adattamenti del target — siamo ancora in fase di calibrazione, scrivi shouldAdjust=false. Se confidenza è "medium" o "high" e la stima differisce dal target di oltre 3 min in modo consistente, suggerisci l'adattamento da amico onesto. Quando ne parli, ricorda all'utente che è una banda (es: "siamo intorno ai X', tra Y' e Z'"), non un numero secco. Quando parli del ritmo gara o del target, fai sempre riferimento alla distanza ${raceDistLabel}. Meglio un target raggiungibile che uno irrealistico.
-5. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight invita SOLO a sentire un medico, da amico preoccupato.
-6. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
+2. Altrimenti, scrivi technicalReading, sessionHighlight, nextMove con tono da amico-diario (vedi system prompt). Niente paroloni, niente "devi".
+3. **Tieni conto dello "Stato di forma"** (blocco qui sopra) quando commenti e proponi il prossimo passo. Se è "Affaticato", "Carico alto" o "Sovraccarico", in nextMove proponi SEMPRE come opzione di alleggerire (durata ridotta, intensità sul lato basso del range, eventuale giorno di riposo extra). Se è "Pronto" o "Fresco/scarico", puoi confermare la sessione pianificata senza modifiche. Se è "non disponibile" (pochi dati), NON inventare numeri di forma/fatica — di' semplicemente che è ancora presto per leggere lo stato di forma. Non citare mai CTL/ATL/TSB: traduci sempre in "forma", "fatica", "freschezza".
+4. In **nextMove** DEVI ancorarti alla "Prossima sessione del piano" sopra. Cita il nome esatto della sessione. NON inventare un allenamento diverso (no "Lungo Semplice 8-10km" se nel piano c'è "Medio in progressione"). Se serve, proponi (non imporre) piccoli aggiustamenti dentro quella sessione, incrociando come è andata oggi e lo stato di forma. Collega esplicitamente alla sessione di oggi ("visto che oggi...", "dato che hai spinto..."). Se NON c'è una prossima sessione pianificata, allora puoi proporre liberamente.
+5. Per planAdjustment: usa la "Stima ${raceDistLabel} dai log" e la sua **confidenza**. Se confidenza è "low" (metodo "target-fallback") OPPURE i dati di oggi sono implausibili, NON suggerire adattamenti del target — siamo ancora in fase di calibrazione, scrivi shouldAdjust=false. Se confidenza è "medium" o "high" e la stima differisce dal target di oltre 3 min in modo consistente, presentalo come OSSERVAZIONE da amico ("se vuoi puoi aggiornare il target", mai "devi"). Ricorda che è una banda, non un numero secco. Riferisciti sempre alla distanza ${raceDistLabel}.
+6. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight invita SOLO a sentire un medico, da amico preoccupato.
+7. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
 }
 
 function sanitizeOutput(parsed: any) {

@@ -217,6 +217,8 @@ Sessione corrente:
 - Cadenza: ${log.cadence || "n/d"} ${log.cadence ? "passi/min" : ""}
 - Note utente: ${log.notes ? `"${log.notes}"` : "(vuote)"}
 
+${plausBlock}
+
 Confronto con target gara:
 - Ritmo target: ${computed.targetPace}/km
 - Ritmo sessione: ${computed.paceFormatted}/km

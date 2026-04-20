@@ -85,33 +85,39 @@ export interface ZonesResult {
 }
 
 // ---------- HR zones (Tanaka formula) ----------
-export function computeZones(profile: Profile): ZonesResult {
+// Optional `highlightFor`: highlight the zone that matches the given session type.
+// easy/freeform → leggera, long → media, medium/race → medio-alta, quality → alta.
+export function computeZones(profile: Profile, highlightFor?: SessionType): ZonesResult {
   const hrMax = Math.round(208 - 0.7 * profile.age);
+  const highlightName = (() => {
+    switch (highlightFor) {
+      case "easy":
+      case "freeform":
+        return "Intensità leggera";
+      case "long":
+        return "Intensità media";
+      case "medium":
+      case "race":
+        return "Intensità medio-alta";
+      case "quality":
+        return "Intensità alta";
+      default:
+        return null; // no highlight when type is unknown
+    }
+  })();
+
+  const make = (name: string, description: string, range: string): Zone => ({
+    name,
+    description,
+    range,
+    highlight: highlightName === name,
+  });
+
   const zones: Zone[] = [
-    {
-      name: "Intensità leggera",
-      description: "Corsa conversazionale, recupero",
-      range: `${Math.round(hrMax * 0.65)}–${Math.round(hrMax * 0.75)}`,
-      highlight: false,
-    },
-    {
-      name: "Intensità media",
-      description: "Resistenza di base",
-      range: `${Math.round(hrMax * 0.75)}–${Math.round(hrMax * 0.85)}`,
-      highlight: false,
-    },
-    {
-      name: "Intensità medio-alta",
-      description: "Sforzo impegnativo sostenibile",
-      range: `${Math.round(hrMax * 0.85)}–${Math.round(hrMax * 0.9)}`,
-      highlight: true,
-    },
-    {
-      name: "Intensità alta",
-      description: "Tratti brevi e intensi",
-      range: `${Math.round(hrMax * 0.9)}–${Math.round(hrMax * 0.95)}`,
-      highlight: false,
-    },
+    make("Intensità leggera", "Corsa conversazionale, recupero", `${Math.round(hrMax * 0.65)}–${Math.round(hrMax * 0.75)}`),
+    make("Intensità media", "Resistenza di base", `${Math.round(hrMax * 0.75)}–${Math.round(hrMax * 0.85)}`),
+    make("Intensità medio-alta", "Sforzo impegnativo sostenibile", `${Math.round(hrMax * 0.85)}–${Math.round(hrMax * 0.9)}`),
+    make("Intensità alta", "Tratti brevi e intensi", `${Math.round(hrMax * 0.9)}–${Math.round(hrMax * 0.95)}`),
   ];
   return { hrMax, zones };
 }

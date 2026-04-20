@@ -208,10 +208,7 @@ export function computeZones(
   highlightFor?: SessionType,
   logs?: WorkoutLog[],
 ): ZonesResult {
-  // Lazy import to avoid circular if any future split happens
-  // (load-model has zero deps on pace-engine, so direct import is fine)
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { estimateHRmax, computeZonesKarvonen } = require("./load-model") as typeof import("./load-model");
+
 
   const hrMaxEst = estimateHRmax(
     { age: profile.age, sex: profile.sex, hrRest: profile.hrRest ?? null },

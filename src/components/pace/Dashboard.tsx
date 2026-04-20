@@ -70,16 +70,65 @@ export function Dashboard({
         </div>
 
         <div className="mb-2 mono-font text-xs tracking-widest text-stone-400">TEMPO IPOTETICO 10 KM</div>
-        <div className="flex items-baseline gap-3 flex-wrap">
-          <div className="display-font text-7xl leading-none">{formatTime(displayTime)}</div>
-          <div className="mono-font text-sm text-stone-400">min</div>
-          {plan.adjustedEstimate && Math.abs(plan.adjustedEstimate - profile.targetTime) > 0.5 && (
-            <div className="mono-font text-xs px-2 py-1 bg-stone-700 text-stone-200 rounded-full">STIMA RIVISTA</div>
-          )}
-        </div>
-        <div className="mt-2 text-xs text-stone-500">
-          Ritmo indicativo: <span className="mono-font text-stone-300">{paceFromTime(displayTime)}/km</span> · stima dai dati inseriti
-        </div>
+        {(() => {
+          const conf = plan.estimateConfidence ?? null;
+          const hasBand =
+            plan.adjustedEstimate != null &&
+            plan.estimateLow != null &&
+            plan.estimateHigh != null &&
+            conf !== "low";
+
+          if (!hasBand) {
+            // Not enough data — show declared target + collecting-data note
+            return (
+              <>
+                <div className="flex items-baseline gap-3 flex-wrap">
+                  <div className="display-font text-7xl leading-none">{formatTime(profile.targetTime)}</div>
+                  <div className="mono-font text-sm text-stone-400">min · target</div>
+                  <div className="mono-font text-[10px] px-2 py-1 bg-stone-700 text-stone-300 rounded-full tracking-wider">
+                    RACCOGLIENDO DATI
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-stone-500 leading-relaxed">
+                  Servono ancora 2-3 sessioni di qualità (medio, ripetute o lungo) per una stima affidabile dai tuoi numeri.
+                </div>
+              </>
+            );
+          }
+
+          const central = plan.adjustedEstimate!;
+          const low = plan.estimateLow!;
+          const high = plan.estimateHigh!;
+          const confChipBg =
+            conf === "high"
+              ? "bg-signal text-ink"
+              : conf === "medium"
+              ? "bg-stone-600 text-stone-100"
+              : "bg-stone-700 text-stone-300";
+          const confLabel = conf === "high" ? "ALTA" : conf === "medium" ? "MEDIA" : "BASSA";
+
+          return (
+            <>
+              <div className="flex items-baseline gap-3 flex-wrap">
+                <div className="display-font text-7xl leading-none">{formatTime(central)}</div>
+                <div className="mono-font text-sm text-stone-400">min</div>
+                <div className={`mono-font text-[10px] px-2 py-1 rounded-full tracking-wider ${confChipBg}`}>
+                  CONFIDENZA {confLabel}
+                </div>
+              </div>
+              <div className="mt-2 text-xs text-stone-500">
+                Banda probabile:{" "}
+                <span className="mono-font text-stone-300">
+                  {formatTime(low)} – {formatTime(high)}
+                </span>{" "}
+                · ritmo centrale <span className="mono-font text-stone-300">{paceFromTime(central)}/km</span>
+              </div>
+              <div className="mt-1 text-[10px] text-stone-500 leading-relaxed">
+                Stima Riegel + normalizzazione FC, pesata sulle sessioni recenti. Non è una previsione.
+              </div>
+            </>
+          );
+        })()}
 
         <div className="mt-6 grid grid-cols-3 gap-2">
           <StatTile label="GIORNI" value={daysLeft} />

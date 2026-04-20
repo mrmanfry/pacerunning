@@ -17,6 +17,7 @@ import {
   checkSafetyFlags,
   computeAdjustedEstimate,
   computeMetrics,
+  findNextSession,
   generatePlan,
   getLastCompletedLog,
   type Analysis,
@@ -191,9 +192,24 @@ const Index = () => {
         deltaFromTarget: Math.round((projectedTime - profile.targetTime) * 10) / 10,
       };
 
+      // Pass the next planned session so the coach can ANCHOR advice on it,
+      // not invent a new workout.
+      const next = findNextSession(updatedPlan, newLogs);
+      const nextPlanned = next
+        ? {
+            weekIdx: next.weekIdx,
+            sessionIdx: next.sessionIdx,
+            name: next.data.name,
+            type: next.data.type,
+            duration: next.data.duration,
+            targetHR: next.data.targetHR ?? null,
+            blocks: next.data.blocks,
+          }
+        : null;
+
       try {
         const { data: aiData, error: aiError } = await supabase.functions.invoke("analyze-workout", {
-          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary },
+          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary, nextPlanned },
         });
 
         if (aiError) {

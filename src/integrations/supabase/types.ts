@@ -45,6 +45,9 @@ export type Database = {
         Row: {
           adjusted_estimate: number | null
           created_at: string
+          estimate_confidence: string | null
+          estimate_high: number | null
+          estimate_low: number | null
           id: string
           target: number
           updated_at: string
@@ -54,6 +57,9 @@ export type Database = {
         Insert: {
           adjusted_estimate?: number | null
           created_at?: string
+          estimate_confidence?: string | null
+          estimate_high?: number | null
+          estimate_low?: number | null
           id?: string
           target: number
           updated_at?: string
@@ -63,6 +69,9 @@ export type Database = {
         Update: {
           adjusted_estimate?: number | null
           created_at?: string
+          estimate_confidence?: string | null
+          estimate_high?: number | null
+          estimate_low?: number | null
           id?: string
           target?: number
           updated_at?: string

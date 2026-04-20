@@ -80,14 +80,14 @@ Deno.serve(async (req) => {
     if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
 
     const body = await req.json();
-    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility } = body || {};
+    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock } = body || {};
     if (!computed || !log || !profile) return json({ error: "Invalid payload" }, 400);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return json({ error: "AI not configured" }, 500);
 
     // Cap. 3.2 — Sandwich: passa numeri pre-calcolati
-    const userPrompt = buildUserPrompt({ computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility });
+    const userPrompt = buildUserPrompt({ computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock });
 
     const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -171,7 +171,7 @@ Deno.serve(async (req) => {
 });
 
 function buildUserPrompt(args: any): string {
-  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility } = args;
+  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock } = args;
   const recent = (recentSameType || [])
     .map(
       (r: any, i: number) =>
@@ -189,6 +189,10 @@ function buildUserPrompt(args: any): string {
     const status = plausibility.ok ? "WARN" : "DATI IMPLAUSIBILI";
     return `Plausibilità dati: ${status}\n${lines}`;
   })();
+
+  const loadStateBlock = loadBlock?.formattedBlock
+    ? loadBlock.formattedBlock
+    : "Stato di forma: non disponibile.";
 
   const nextBlock = nextPlanned
     ? `Prossima sessione del piano (settimana ${nextPlanned.weekIdx + 1}, sessione ${nextPlanned.sessionIdx + 1}):

@@ -77,7 +77,7 @@ export async function loadPlan(userId: string): Promise<Plan | null> {
   if (error) throw error;
   if (!data) return null;
   return {
-    weeks: data.weeks as Plan["weeks"],
+    weeks: data.weeks as unknown as Plan["weeks"],
     target: data.target,
     adjustedEstimate: data.adjusted_estimate ? Number(data.adjusted_estimate) : null,
   };
@@ -85,12 +85,14 @@ export async function loadPlan(userId: string): Promise<Plan | null> {
 
 export async function savePlan(userId: string, plan: Plan) {
   const { error } = await supabase.from("plans").upsert(
-    {
-      user_id: userId,
-      weeks: plan.weeks as unknown as object,
-      target: plan.target,
-      adjusted_estimate: plan.adjustedEstimate,
-    },
+    [
+      {
+        user_id: userId,
+        weeks: plan.weeks as unknown as never,
+        target: plan.target,
+        adjusted_estimate: plan.adjustedEstimate,
+      },
+    ],
     { onConflict: "user_id" }
   );
   if (error) throw error;

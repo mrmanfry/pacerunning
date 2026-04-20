@@ -126,23 +126,28 @@ export async function loadLogs(userId: string): Promise<WorkoutLog[]> {
   }));
 }
 
-export async function insertLog(userId: string, log: WorkoutLog) {
-  const { error } = await supabase.from("workout_logs").insert({
-    user_id: userId,
-    week_idx: log.weekIdx ?? null,
-    session_idx: log.sessionIdx ?? null,
-    session_type: log.sessionType,
-    session_name: log.sessionName,
-    duration: log.duration,
-    distance: log.distance,
-    hr_avg: log.hrAvg,
-    hr_max: log.hrMax ?? null,
-    rpe: log.rpe,
-    cadence: log.cadence ?? null,
-    notes: log.notes ?? null,
-    safety_overridden: log.safetyOverridden ?? false,
-  });
+export async function insertLog(userId: string, log: WorkoutLog): Promise<{ id: string; loggedAt: string }> {
+  const { data, error } = await supabase
+    .from("workout_logs")
+    .insert({
+      user_id: userId,
+      week_idx: log.weekIdx ?? null,
+      session_idx: log.sessionIdx ?? null,
+      session_type: log.sessionType,
+      session_name: log.sessionName,
+      duration: log.duration,
+      distance: log.distance,
+      hr_avg: log.hrAvg,
+      hr_max: log.hrMax ?? null,
+      rpe: log.rpe,
+      cadence: log.cadence ?? null,
+      notes: log.notes ?? null,
+      safety_overridden: log.safetyOverridden ?? false,
+    })
+    .select("id,logged_at")
+    .single();
   if (error) throw error;
+  return { id: data.id, loggedAt: data.logged_at };
 }
 
 // ---------- Storage: workout screenshots ----------
@@ -156,8 +161,54 @@ export async function uploadWorkoutScreenshot(userId: string, file: File): Promi
   return path;
 }
 
+// ---------- Workout analyses (AI coach output) ----------
+export interface StoredAnalysis {
+  id: string;
+  logId: string;
+  technicalReading: string | null;
+  sessionHighlight: string | null;
+  nextMove: string | null;
+  createdAt: string;
+}
+
+export async function saveAnalysis(
+  userId: string,
+  logId: string,
+  a: { technicalReading?: string | null; sessionHighlight?: string | null; nextMove?: string | null }
+) {
+  const { error } = await supabase.from("workout_analyses").insert({
+    user_id: userId,
+    log_id: logId,
+    technical_reading: a.technicalReading ?? null,
+    session_highlight: a.sessionHighlight ?? null,
+    next_move: a.nextMove ?? null,
+  });
+  if (error) throw error;
+}
+
+export async function loadLatestAnalysis(userId: string): Promise<StoredAnalysis | null> {
+  const { data, error } = await supabase
+    .from("workout_analyses")
+    .select("id,log_id,technical_reading,session_highlight,next_move,created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return {
+    id: data.id,
+    logId: data.log_id,
+    technicalReading: data.technical_reading,
+    sessionHighlight: data.session_highlight,
+    nextMove: data.next_move,
+    createdAt: data.created_at,
+  };
+}
+
 // ---------- Reset (full delete for current user) ----------
 export async function resetAllForUser(userId: string) {
+  await supabase.from("workout_analyses").delete().eq("user_id", userId);
   await supabase.from("workout_logs").delete().eq("user_id", userId);
   await supabase.from("plans").delete().eq("user_id", userId);
   await supabase.from("profiles").delete().eq("id", userId);

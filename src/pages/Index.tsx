@@ -18,6 +18,7 @@ import {
   computeAdjustedEstimate,
   computeMetrics,
   generatePlan,
+  getLastCompletedLog,
   type Analysis,
   type Plan,
   type Profile,
@@ -27,14 +28,17 @@ import {
 } from "@/lib/pace-engine";
 import {
   insertLog,
+  loadLatestAnalysis,
   loadLatestConsents,
   loadLogs,
   loadPlan,
   loadProfile,
   resetAllForUser,
+  saveAnalysis,
   saveConsents,
   savePlan,
   saveProfile,
+  type StoredAnalysis,
 } from "@/lib/pace-repository";
 
 type Screen =
@@ -64,6 +68,7 @@ const Index = () => {
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [safetyBlock, setSafetyBlock] = useState<(SafetyResult & { pendingLog: WorkoutLog }) | null>(null);
+  const [lastAnalysis, setLastAnalysis] = useState<StoredAnalysis | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -73,17 +78,19 @@ const Index = () => {
     }
     (async () => {
       try {
-        const [c, p, pl, lg] = await Promise.all([
+        const [c, p, pl, lg, la] = await Promise.all([
           loadLatestConsents(user.id),
           loadProfile(user.id),
           loadPlan(user.id),
           loadLogs(user.id),
+          loadLatestAnalysis(user.id),
         ]);
         const okConsents = !!(c && c.c1 && c.c2 && c.c3);
         setConsentsAccepted(okConsents);
         if (p) setProfile(p);
         if (pl) setPlan(pl);
         setLogs(lg);
+        setLastAnalysis(la);
 
         if (!okConsents) setScreen("frictionWall");
         else if (!p || !pl) setScreen("onboarding");
@@ -136,8 +143,9 @@ const Index = () => {
   const persistLog = async (log: WorkoutLog) => {
     if (!user || !profile || !plan) return;
     try {
-      await insertLog(user.id, log);
-      const newLogs = [...logs, log];
+      const inserted = await insertLog(user.id, log);
+      const fullLog: WorkoutLog = { ...log, id: inserted.id, loggedAt: inserted.loggedAt };
+      const newLogs = [...logs, fullLog];
       setLogs(newLogs);
 
       // Compute adjusted estimate (deterministic)
@@ -154,12 +162,12 @@ const Index = () => {
       setScreen("analysis");
 
       // Compute deterministic metrics first (Cap. 3.2 — sandwich layer 1)
-      const baseAnalysis = analyzeWorkout(log, profile, updatedPlan, newLogs);
-      const computed = computeMetrics(log, profile);
+      const baseAnalysis = analyzeWorkout(fullLog, profile, updatedPlan, newLogs);
+      const computed = computeMetrics(fullLog, profile);
 
       // Recent same-type logs for context (last 3)
       const recentSameType = newLogs
-        .filter((l) => l.sessionType === log.sessionType && l !== log)
+        .filter((l) => l.sessionType === fullLog.sessionType && l.id !== fullLog.id)
         .slice(-3)
         .map((l) => {
           const c = computeMetrics(l, profile);
@@ -181,7 +189,7 @@ const Index = () => {
 
       try {
         const { data: aiData, error: aiError } = await supabase.functions.invoke("analyze-workout", {
-          body: { computed, log, profile, recentSameType, allLogsSummary },
+          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary },
         });
 
         if (aiError) {
@@ -191,14 +199,33 @@ const Index = () => {
           else toast({ title: "Analisi AI non disponibile", description: "Mostro analisi base.", variant: "destructive" });
           setAnalysis(baseAnalysis);
         } else if (aiData?.analysis) {
+          const ai = aiData.analysis;
           setAnalysis({
             ...baseAnalysis,
-            technicalReading: aiData.analysis.technicalReading,
-            sessionHighlight: aiData.analysis.sessionHighlight,
-            aiNextMove: aiData.analysis.nextMove,
-            planAdjustment: aiData.analysis.planAdjustment,
+            technicalReading: ai.technicalReading,
+            sessionHighlight: ai.sessionHighlight,
+            aiNextMove: ai.nextMove,
+            planAdjustment: ai.planAdjustment,
             source: "ai",
           });
+          // Persist coach analysis tied to this log
+          try {
+            await saveAnalysis(user.id, fullLog.id!, {
+              technicalReading: ai.technicalReading ?? null,
+              sessionHighlight: ai.sessionHighlight ?? null,
+              nextMove: ai.nextMove ?? null,
+            });
+            setLastAnalysis({
+              id: "local",
+              logId: fullLog.id!,
+              technicalReading: ai.technicalReading ?? null,
+              sessionHighlight: ai.sessionHighlight ?? null,
+              nextMove: ai.nextMove ?? null,
+              createdAt: new Date().toISOString(),
+            });
+          } catch (saveErr) {
+            console.error("saveAnalysis error:", saveErr);
+          }
         } else {
           setAnalysis(baseAnalysis);
         }
@@ -244,6 +271,7 @@ const Index = () => {
       setProfile(null);
       setPlan(null);
       setLogs([]);
+      setLastAnalysis(null);
       setConsentsAccepted(false);
       setScreen("frictionWall");
       toast({ title: "Tutti i tuoi dati sono stati cancellati." });
@@ -258,9 +286,19 @@ const Index = () => {
     setProfile(null);
     setPlan(null);
     setLogs([]);
+    setLastAnalysis(null);
     setConsentsAccepted(false);
     setScreen("auth");
   };
+
+  // Helper: find a logged workout for a given (weekIdx, sessionIdx)
+  const findLogFor = (weekIdx: number, sessionIdx: number): WorkoutLog | undefined =>
+    logs.find((l) => l.weekIdx === weekIdx && l.sessionIdx === sessionIdx);
+
+  const lastLog = getLastCompletedLog(logs);
+  const selectedLoggedData = selectedSession
+    ? findLogFor(selectedSession.weekIdx, selectedSession.sessionIdx)
+    : undefined;
 
   if (authLoading || screen === "loading") return <LoadingScreen />;
 
@@ -280,6 +318,8 @@ const Index = () => {
             profile={profile}
             plan={plan}
             logs={logs}
+            lastLog={lastLog}
+            lastAnalysis={lastAnalysis}
             onOpenSession={(s) => {
               setSelectedSession(s);
               setScreen("session");
@@ -296,6 +336,7 @@ const Index = () => {
           <SessionDetail
             session={selectedSession}
             profile={profile}
+            loggedData={selectedLoggedData}
             onBack={() => setScreen("dashboard")}
             onLog={() => setScreen("logWorkout")}
           />

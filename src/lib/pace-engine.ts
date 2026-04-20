@@ -693,3 +693,14 @@ export function daysBetween(fromISO: string | Date, toISO: string | Date): numbe
   const ms = to.getTime() - from.getTime();
   return Math.ceil(ms / 86400000);
 }
+
+// Returns the most recently logged workout (by loggedAt), or null.
+export function getLastCompletedLog(logs: WorkoutLog[]): WorkoutLog | null {
+  if (!logs.length) return null;
+  const sorted = [...logs].sort((a, b) => {
+    const ta = a.loggedAt ? new Date(a.loggedAt).getTime() : 0;
+    const tb = b.loggedAt ? new Date(b.loggedAt).getTime() : 0;
+    return tb - ta;
+  });
+  return sorted[0];
+}

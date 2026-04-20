@@ -1,17 +1,19 @@
-import { ArrowLeft, AlertTriangle, Check } from "lucide-react";
-import type { Profile, Session } from "@/lib/pace-engine";
+import { ArrowLeft, AlertTriangle, Check, CheckCircle2 } from "lucide-react";
+import type { Profile, Session, WorkoutLog } from "@/lib/pace-engine";
 import { computeZones, getTypeBg } from "@/lib/pace-engine";
 
 interface Props {
   session: { data: Session; weekIdx: number; sessionIdx: number };
   profile: Profile;
+  loggedData?: WorkoutLog;
   onBack: () => void;
   onLog: () => void;
 }
 
-export function SessionDetail({ session, profile, onBack, onLog }: Props) {
+export function SessionDetail({ session, profile, loggedData, onBack, onLog }: Props) {
   const zones = computeZones(profile);
   const s = session.data;
+  const isCompleted = !!loggedData;
 
   return (
     <div className="min-h-screen bg-paper pb-28">
@@ -28,11 +30,51 @@ export function SessionDetail({ session, profile, onBack, onLog }: Props) {
           <Pill>{s.type}</Pill>
           {s.targetHR && <Pill>~{s.targetHR} bpm</Pill>}
         </div>
+
+        {isCompleted && (
+          <div className="mt-4 bg-lime-500 text-lime-950 rounded-full px-4 py-2 inline-flex items-center gap-2 text-xs font-bold">
+            <CheckCircle2 size={16} /> ALLENAMENTO COMPLETATO
+            {loggedData?.loggedAt && (
+              <span className="mono-font text-[10px] opacity-80">· {formatLoggedDate(loggedData.loggedAt)}</span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="p-6 space-y-5">
+        {isCompleted && loggedData && (
+          <div>
+            <div className="mono-font text-xs tracking-widest text-stone-500 mb-3">▼ COSA HAI FATTO</div>
+            <div className="bg-ink text-paper rounded-3xl p-5 space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                <DataStat label="DISTANZA" value={`${loggedData.distance.toFixed(2)} km`} />
+                <DataStat label="DURATA" value={`${Math.round(loggedData.duration)}'`} />
+                <DataStat label="PACE" value={`${formatPace(loggedData.duration / loggedData.distance)}/km`} />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <DataStat label="FC MEDIA" value={`${loggedData.hrAvg} bpm`} />
+                <DataStat label="FC MAX" value={loggedData.hrMax ? `${loggedData.hrMax} bpm` : "—"} />
+                <DataStat label="RPE" value={`${loggedData.rpe}/10`} />
+              </div>
+              {loggedData.cadence && (
+                <div className="grid grid-cols-3 gap-2">
+                  <DataStat label="CADENZA" value={`${loggedData.cadence} spm`} />
+                </div>
+              )}
+              {loggedData.notes && (
+                <div className="pt-2 border-t border-stone-700">
+                  <div className="mono-font text-[10px] tracking-widest text-stone-400 mb-1">NOTE</div>
+                  <div className="text-sm text-stone-200 leading-relaxed">{loggedData.notes}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <div>
-          <div className="mono-font text-xs tracking-widest text-stone-500 mb-3">▼ SPUNTI PER LA SESSIONE</div>
+          <div className="mono-font text-xs tracking-widest text-stone-500 mb-3">
+            ▼ {isCompleted ? "COSA ERA PREVISTO" : "SPUNTI PER LA SESSIONE"}
+          </div>
           <div className="bg-card rounded-3xl p-5 border border-border space-y-3">
             {s.blocks.map((b, i) => (
               <div key={i} className="flex gap-3 items-start">
@@ -83,12 +125,21 @@ export function SessionDetail({ session, profile, onBack, onLog }: Props) {
       </div>
 
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 max-w-md w-full px-6">
-        <button
-          onClick={onLog}
-          className="w-full bg-ink text-paper py-4 rounded-full font-bold tracking-wide flex items-center justify-center gap-2 shadow-lg hover:bg-ink-soft transition-all active:scale-[0.98]"
-        >
-          <Check size={18} /> REGISTRA QUESTO ALLENAMENTO
-        </button>
+        {isCompleted ? (
+          <button
+            onClick={onBack}
+            className="w-full bg-stone-200 text-ink py-4 rounded-full font-bold tracking-wide flex items-center justify-center gap-2 shadow-lg hover:bg-stone-300 transition-all active:scale-[0.98]"
+          >
+            <ArrowLeft size={18} /> TORNA AL DIARIO
+          </button>
+        ) : (
+          <button
+            onClick={onLog}
+            className="w-full bg-ink text-paper py-4 rounded-full font-bold tracking-wide flex items-center justify-center gap-2 shadow-lg hover:bg-ink-soft transition-all active:scale-[0.98]"
+          >
+            <Check size={18} /> REGISTRA QUESTO ALLENAMENTO
+          </button>
+        )}
       </div>
     </div>
   );
@@ -96,4 +147,29 @@ export function SessionDetail({ session, profile, onBack, onLog }: Props) {
 
 function Pill({ children }: { children: React.ReactNode }) {
   return <div className="bg-ink/10 text-ink px-3 py-1 rounded-full text-xs font-bold">{children}</div>;
+}
+
+function DataStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-stone-800/60 rounded-xl p-2.5 border border-stone-700">
+      <div className="mono-font text-[9px] tracking-wider text-stone-400 mb-0.5">{label}</div>
+      <div className="mono-font text-sm font-bold text-paper truncate">{value}</div>
+    </div>
+  );
+}
+
+function formatPace(minPerKm: number): string {
+  if (!isFinite(minPerKm) || minPerKm <= 0) return "—";
+  const m = Math.floor(minPerKm);
+  const s = Math.round((minPerKm - m) * 60);
+  return `${m}'${String(s).padStart(2, "0")}"`;
+}
+
+function formatLoggedDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("it-IT", { day: "numeric", month: "short" });
+  } catch {
+    return "";
+  }
 }

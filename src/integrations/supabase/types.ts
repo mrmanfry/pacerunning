@@ -116,6 +116,36 @@ export type Database = {
         }
         Relationships: []
       }
+      workout_analyses: {
+        Row: {
+          created_at: string
+          id: string
+          log_id: string
+          next_move: string | null
+          session_highlight: string | null
+          technical_reading: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          log_id: string
+          next_move?: string | null
+          session_highlight?: string | null
+          technical_reading?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          log_id?: string
+          next_move?: string | null
+          session_highlight?: string | null
+          technical_reading?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       workout_logs: {
         Row: {
           cadence: number | null

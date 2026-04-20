@@ -1,17 +1,29 @@
-import { Activity, AlertTriangle, Check, ChevronRight, Info } from "lucide-react";
+import { Activity, AlertTriangle, Check, ChevronRight, Info, MessageCircle } from "lucide-react";
 import type { Plan, Profile, WorkoutLog, Session } from "@/lib/pace-engine";
 import { computeZones, daysBetween, findNextSession, formatTime, getTypeStyles, paceFromTime } from "@/lib/pace-engine";
+import type { StoredAnalysis } from "@/lib/pace-repository";
 
 interface Props {
   profile: Profile;
   plan: Plan;
   logs: WorkoutLog[];
+  lastLog?: WorkoutLog | null;
+  lastAnalysis?: StoredAnalysis | null;
   onOpenSession: (s: { data: Session; weekIdx: number; sessionIdx: number }) => void;
   onLogFreeform: () => void;
   onOpenSettings: () => void;
 }
 
-export function Dashboard({ profile, plan, logs, onOpenSession, onLogFreeform, onOpenSettings }: Props) {
+export function Dashboard({
+  profile,
+  plan,
+  logs,
+  lastLog,
+  lastAnalysis,
+  onOpenSession,
+  onLogFreeform,
+  onOpenSettings,
+}: Props) {
   const zones = computeZones(profile);
   const completedCount = logs.length;
   const totalSessions = plan.weeks.reduce((a, w) => a + w.sessions.length, 0);
@@ -23,6 +35,11 @@ export function Dashboard({ profile, plan, logs, onOpenSession, onLogFreeform, o
   const daysLeft = profile.raceDate
     ? Math.max(0, daysBetween(today, profile.raceDate))
     : profile.daysUntilRace;
+
+  // Coach excerpt: first 1-2 sentences of nextMove
+  const coachExcerpt = lastAnalysis?.nextMove
+    ? truncateToSentences(lastAnalysis.nextMove, 2)
+    : null;
 
   return (
     <div className="min-h-screen bg-paper pb-28">
@@ -72,8 +89,48 @@ export function Dashboard({ profile, plan, logs, onOpenSession, onLogFreeform, o
         <div className="mt-2 text-[10px] text-stone-500 mono-font">* stima da formula, non misurata</div>
       </div>
 
+      {/* Last workout recap */}
+      {lastLog && (
+        <div className="p-6 pb-2">
+          <div className="mono-font text-xs tracking-widest text-stone-500 mb-3">▼ ULTIMO ALLENAMENTO</div>
+          <div className="bg-card rounded-3xl p-5 border border-border">
+            <div className="flex items-start justify-between mb-3 gap-3">
+              <div className="min-w-0">
+                <div className="display-font text-2xl leading-tight truncate">{lastLog.sessionName}</div>
+                <div className="mono-font text-xs text-stone-500 mt-0.5">
+                  {lastLog.loggedAt ? formatLoggedDate(lastLog.loggedAt) : ""}
+                </div>
+              </div>
+              <div className={`px-3 py-1 rounded-full text-xs font-bold flex-shrink-0 ${getTypeStyles(lastLog.sessionType)}`}>
+                {lastLog.sessionType.toUpperCase()}
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mb-1">
+              <RecapStat label="DISTANZA" value={`${lastLog.distance.toFixed(2)} km`} />
+              <RecapStat label="DURATA" value={`${Math.round(lastLog.duration)}'`} />
+              <RecapStat label="PACE" value={`${formatPace(lastLog.duration / lastLog.distance)}/km`} />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <RecapStat label="FC MEDIA" value={`${lastLog.hrAvg} bpm`} />
+              <RecapStat label="RPE" value={`${lastLog.rpe}/10`} />
+              <RecapStat label="FC MAX" value={lastLog.hrMax ? `${lastLog.hrMax} bpm` : "—"} />
+            </div>
+
+            {coachExcerpt && (
+              <div className="mt-4 bg-ink text-paper rounded-2xl p-4 flex gap-3">
+                <MessageCircle size={18} className="text-signal flex-shrink-0 mt-0.5" />
+                <div className="text-sm leading-relaxed">
+                  <div className="mono-font text-[10px] tracking-widest text-signal mb-1">IL COACH DICE</div>
+                  {coachExcerpt}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {nextSession && (
-        <div className="p-6">
+        <div className="p-6 pt-2">
           <div className="mono-font text-xs tracking-widest text-stone-500 mb-3">▼ PROSSIMO SPUNTO</div>
           <button
             onClick={() => onOpenSession(nextSession)}
@@ -100,6 +157,14 @@ export function Dashboard({ profile, plan, logs, onOpenSession, onLogFreeform, o
                 <div className="text-stone-500 text-xs">+ {nextSession.data.blocks.length - 3} altri spunti</div>
               )}
             </div>
+
+            {coachExcerpt && (
+              <div className="mt-4 pt-4 border-t border-stone-700">
+                <div className="mono-font text-[10px] tracking-widest text-signal mb-1">CONSIGLIO DALL'ULTIMO ALLENAMENTO</div>
+                <div className="text-sm text-stone-300 leading-relaxed">{coachExcerpt}</div>
+              </div>
+            )}
+
             <div className="mt-4 flex items-center gap-1 text-signal text-sm font-bold">
               APRI DETTAGLI <ChevronRight size={16} />
             </div>
@@ -187,4 +252,34 @@ function StatTile({ label, value }: { label: string; value: string | number }) {
       <div className="display-font text-2xl text-paper">{value}</div>
     </div>
   );
+}
+
+function RecapStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-stone-50 rounded-xl p-2.5 border border-stone-200">
+      <div className="mono-font text-[9px] tracking-wider text-stone-500 mb-0.5">{label}</div>
+      <div className="mono-font text-sm font-bold text-ink truncate">{value}</div>
+    </div>
+  );
+}
+
+function formatPace(minPerKm: number): string {
+  if (!isFinite(minPerKm) || minPerKm <= 0) return "—";
+  const m = Math.floor(minPerKm);
+  const s = Math.round((minPerKm - m) * 60);
+  return `${m}'${String(s).padStart(2, "0")}"`;
+}
+
+function formatLoggedDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
+function truncateToSentences(text: string, maxSentences: number): string {
+  const parts = text.split(/(?<=[.!?])\s+/).slice(0, maxSentences);
+  return parts.join(" ").trim();
 }

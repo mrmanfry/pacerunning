@@ -833,6 +833,10 @@ export function computeEstimateDetail(logs: WorkoutLog[], profile: Profile): Est
 
   for (const log of logs) {
     if (log.skipped) continue;
+    // Exclude physiologically impossible sessions from the estimate so a single
+    // typo (e.g. 50km in 35min) doesn't poison the projection.
+    const plaus = checkDataPlausibility(log);
+    if (!plaus.ok) continue;
     const est = singleSessionEstimate(log, hrMax);
     if (est == null || !isFinite(est) || est <= 0) continue;
     const ts = log.loggedAt ? new Date(log.loggedAt).getTime() : now;

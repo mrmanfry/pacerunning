@@ -201,10 +201,11 @@ Sintesi storico completo (${allLogsSummary?.totalSessions || 0} sessioni):
 - Scostamento dal target dichiarato: ${allLogsSummary?.deltaFromTarget || 0} min
 
 ISTRUZIONI:
-1. Scrivi technicalReading, sessionHighlight, nextMove seguendo Cap. 3.4.
-2. Per planAdjustment: se la stima realistica differisce dal target di oltre 3 min in modo consistente, suggerisci l'adattamento. Sii onesto: meglio un target raggiungibile che uno irrealistico.
-3. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight invita SOLO a consultare un medico.
-4. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
+1. Scrivi technicalReading, sessionHighlight, nextMove con tono da amico-coach (vedi system prompt). Niente paroloni.
+2. In **nextMove** sii CONCRETO sul prossimo allenamento: tipo (lento/medio/ripetute/lungo/recupero), ritmo indicativo in min/km, FC da tenere, durata o distanza. Collega esplicitamente alla sessione di oggi ("visto che oggi...", "dato che hai spinto...", "siccome il cuore era basso..."). Se la sessione di oggi era dura → suggerisci recupero. Se era facile → puoi proporre qualcosa di più stimolante.
+3. Per planAdjustment: se la stima realistica differisce dal target di oltre 3 min in modo consistente, suggerisci l'adattamento da amico onesto. Meglio un target raggiungibile che uno irrealistico.
+4. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight invita SOLO a sentire un medico, da amico preoccupato.
+5. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
 }
 
 function sanitizeOutput(parsed: any) {

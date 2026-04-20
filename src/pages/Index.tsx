@@ -374,8 +374,10 @@ const Index = () => {
             session={selectedSession}
             profile={profile}
             loggedData={selectedLoggedData}
+            recentAnalyses={recentAnalyses}
             onBack={() => setScreen("dashboard")}
             onLog={() => setScreen("logWorkout")}
+            onSkip={skipSession}
           />
         )}
 

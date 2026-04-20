@@ -18,6 +18,7 @@ import {
   computeAdjustedEstimate,
   computeMetrics,
   generatePlan,
+  getLastCompletedLog,
   type Analysis,
   type Plan,
   type Profile,
@@ -27,14 +28,17 @@ import {
 } from "@/lib/pace-engine";
 import {
   insertLog,
+  loadLatestAnalysis,
   loadLatestConsents,
   loadLogs,
   loadPlan,
   loadProfile,
   resetAllForUser,
+  saveAnalysis,
   saveConsents,
   savePlan,
   saveProfile,
+  type StoredAnalysis,
 } from "@/lib/pace-repository";
 
 type Screen =

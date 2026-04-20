@@ -78,17 +78,19 @@ const Index = () => {
     }
     (async () => {
       try {
-        const [c, p, pl, lg] = await Promise.all([
+        const [c, p, pl, lg, la] = await Promise.all([
           loadLatestConsents(user.id),
           loadProfile(user.id),
           loadPlan(user.id),
           loadLogs(user.id),
+          loadLatestAnalysis(user.id),
         ]);
         const okConsents = !!(c && c.c1 && c.c2 && c.c3);
         setConsentsAccepted(okConsents);
         if (p) setProfile(p);
         if (pl) setPlan(pl);
         setLogs(lg);
+        setLastAnalysis(la);
 
         if (!okConsents) setScreen("frictionWall");
         else if (!p || !pl) setScreen("onboarding");

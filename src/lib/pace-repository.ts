@@ -126,23 +126,28 @@ export async function loadLogs(userId: string): Promise<WorkoutLog[]> {
   }));
 }
 
-export async function insertLog(userId: string, log: WorkoutLog) {
-  const { error } = await supabase.from("workout_logs").insert({
-    user_id: userId,
-    week_idx: log.weekIdx ?? null,
-    session_idx: log.sessionIdx ?? null,
-    session_type: log.sessionType,
-    session_name: log.sessionName,
-    duration: log.duration,
-    distance: log.distance,
-    hr_avg: log.hrAvg,
-    hr_max: log.hrMax ?? null,
-    rpe: log.rpe,
-    cadence: log.cadence ?? null,
-    notes: log.notes ?? null,
-    safety_overridden: log.safetyOverridden ?? false,
-  });
+export async function insertLog(userId: string, log: WorkoutLog): Promise<{ id: string; loggedAt: string }> {
+  const { data, error } = await supabase
+    .from("workout_logs")
+    .insert({
+      user_id: userId,
+      week_idx: log.weekIdx ?? null,
+      session_idx: log.sessionIdx ?? null,
+      session_type: log.sessionType,
+      session_name: log.sessionName,
+      duration: log.duration,
+      distance: log.distance,
+      hr_avg: log.hrAvg,
+      hr_max: log.hrMax ?? null,
+      rpe: log.rpe,
+      cadence: log.cadence ?? null,
+      notes: log.notes ?? null,
+      safety_overridden: log.safetyOverridden ?? false,
+    })
+    .select("id,logged_at")
+    .single();
   if (error) throw error;
+  return { id: data.id, loggedAt: data.logged_at };
 }
 
 // ---------- Storage: workout screenshots ----------

@@ -18,6 +18,12 @@ function defaultRaceDate(): string {
   return d.toISOString().slice(0, 10);
 }
 
+const DISTANCE_PRESETS = [
+  { v: 5, l: "5K" },
+  { v: 10, l: "10K" },
+  { v: 21.097, l: "21K" },
+];
+
 export function Onboarding({ onComplete }: Props) {
   const [step, setStep] = useState(0);
   const [data, setData] = useState<Profile>({
@@ -30,7 +36,10 @@ export function Onboarding({ onComplete }: Props) {
     daysUntilRace: 56,
     raceDate: defaultRaceDate(),
     level: "intermediate",
+    raceDistance: 10,
   });
+  const [customDistance, setCustomDistance] = useState<string>("");
+  const isPresetDistance = DISTANCE_PRESETS.some((p) => Math.abs(p.v - data.raceDistance) < 0.001);
 
   const showAgeWarning = data.age >= 65;
   const days = data.raceDate ? Math.max(0, daysBetween(todayISO(), data.raceDate)) : 0;
@@ -40,6 +49,19 @@ export function Onboarding({ onComplete }: Props) {
   const onRaceDateChange = (iso: string) => {
     const d = Math.max(0, daysBetween(today, iso));
     setData({ ...data, raceDate: iso, daysUntilRace: d });
+  };
+
+  const onDistancePreset = (v: number) => {
+    setData({ ...data, raceDistance: v });
+    setCustomDistance("");
+  };
+
+  const onCustomDistance = (s: string) => {
+    setCustomDistance(s);
+    const n = parseFloat(s.replace(",", "."));
+    if (!isNaN(n) && n > 0 && n <= 100) {
+      setData({ ...data, raceDistance: n });
+    }
   };
 
   let prepHint = "";

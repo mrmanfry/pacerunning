@@ -236,7 +236,7 @@ const Index = () => {
         .filter((l) => !l.skipped && l.sessionType === fullLog.sessionType && l.id !== fullLog.id)
         .slice(-3)
         .map((l) => {
-          const c = computeMetrics(l, profile);
+          const c = computeMetrics(l, profile, newLogs);
           return {
             distance: l.distance,
             duration: l.duration,

@@ -173,6 +173,20 @@ const Index = () => {
       const newLogs = [...logs, fullLog];
       setLogs(newLogs);
 
+      // Recompute load state with the new log included
+      const loadInputs = newLogs.map((l) => ({
+        loggedAt: l.loggedAt ?? null,
+        duration: l.duration,
+        hrAvg: l.hrAvg,
+        hrMax: l.hrMax ?? null,
+        rpe: l.rpe,
+        sessionType: l.sessionType,
+        skipped: l.skipped,
+      }));
+      const profileForLoad = { age: profile.age, sex: profile.sex, hrRest: profile.hrRest ?? null };
+      const newLoadState = computeLoadState(loadInputs, profileForLoad);
+      setLoadState(newLoadState);
+
       // Compute new estimate detail (Riegel + HR + weighted)
       const estimateDetail = computeEstimateDetail(newLogs, profile);
       let updatedPlan = plan;
@@ -195,7 +209,8 @@ const Index = () => {
 
       // Compute deterministic metrics first (Cap. 3.2 — sandwich layer 1)
       const baseAnalysis = analyzeWorkout(fullLog, profile, updatedPlan, newLogs);
-      const computed = computeMetrics(fullLog, profile);
+      const computed = computeMetrics(fullLog, profile, newLogs);
+      const loadBlock = buildAIPromptLoadBlock(newLoadState);
 
       // Override prediction with the new weighted estimate (Riegel + HR, banded)
       const predictionText =

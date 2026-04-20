@@ -149,52 +149,58 @@ export type Database = {
       workout_logs: {
         Row: {
           cadence: number | null
-          distance: number
-          duration: number
-          hr_avg: number
+          distance: number | null
+          duration: number | null
+          hr_avg: number | null
           hr_max: number | null
           id: string
           logged_at: string
           notes: string | null
-          rpe: number
+          rpe: number | null
           safety_overridden: boolean | null
           session_idx: number | null
           session_name: string
           session_type: string
+          skip_reason: string | null
+          skipped: boolean
           user_id: string
           week_idx: number | null
         }
         Insert: {
           cadence?: number | null
-          distance: number
-          duration: number
-          hr_avg: number
+          distance?: number | null
+          duration?: number | null
+          hr_avg?: number | null
           hr_max?: number | null
           id?: string
           logged_at?: string
           notes?: string | null
-          rpe: number
+          rpe?: number | null
           safety_overridden?: boolean | null
           session_idx?: number | null
           session_name: string
           session_type: string
+          skip_reason?: string | null
+          skipped?: boolean
           user_id: string
           week_idx?: number | null
         }
         Update: {
           cadence?: number | null
-          distance?: number
-          duration?: number
-          hr_avg?: number
+          distance?: number | null
+          duration?: number | null
+          hr_avg?: number | null
           hr_max?: number | null
           id?: string
           logged_at?: string
           notes?: string | null
-          rpe?: number
+          rpe?: number | null
           safety_overridden?: boolean | null
           session_idx?: number | null
           session_name?: string
           session_type?: string
+          skip_reason?: string | null
+          skipped?: boolean
           user_id?: string
           week_idx?: number | null
         }

@@ -1,6 +1,8 @@
 // PACE — Deterministic engine (Cap. 2 + Cap. 4 logic)
 // All training math is here, in code. The LLM only writes textual analysis.
 
+import { estimateHRmax, computeZonesKarvonen } from "./load-model";
+
 export type Sex = "M" | "F";
 export type Level = "beginner" | "intermediate" | "advanced";
 export type SessionType = "easy" | "quality" | "medium" | "long" | "race" | "freeform";

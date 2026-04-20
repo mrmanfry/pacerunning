@@ -219,14 +219,16 @@ const Index = () => {
               sessionHighlight: ai.sessionHighlight ?? null,
               nextMove: ai.nextMove ?? null,
             });
-            setLastAnalysis({
-              id: "local",
+            const fresh: StoredAnalysis = {
+              id: `local-${Date.now()}`,
               logId: fullLog.id!,
               technicalReading: ai.technicalReading ?? null,
               sessionHighlight: ai.sessionHighlight ?? null,
               nextMove: ai.nextMove ?? null,
               createdAt: new Date().toISOString(),
-            });
+            };
+            setLastAnalysis(fresh);
+            setRecentAnalyses((prev) => [fresh, ...prev].slice(0, 3));
           } catch (saveErr) {
             console.error("saveAnalysis error:", saveErr);
           }
@@ -268,6 +270,35 @@ const Index = () => {
     setAnalysis({ ...analysis, planAdjustment: { ...analysis.planAdjustment, shouldAdjust: false } });
   };
 
+  const skipSession = async (reason: string) => {
+    if (!user || !selectedSession || !profile || !plan) return;
+    try {
+      const skipLog: WorkoutLog = {
+        weekIdx: selectedSession.weekIdx,
+        sessionIdx: selectedSession.sessionIdx,
+        sessionType: selectedSession.data.type,
+        sessionName: selectedSession.data.name,
+        duration: 0,
+        distance: 0,
+        hrAvg: 0,
+        rpe: 0,
+        skipped: true,
+        skipReason: reason || null,
+      };
+      const inserted = await insertLog(user.id, skipLog);
+      const fullLog: WorkoutLog = { ...skipLog, id: inserted.id, loggedAt: inserted.loggedAt };
+      setLogs((prev) => [...prev, fullLog]);
+      toast({
+        title: "Allenamento segnato come saltato",
+        description: "Il prossimo spunto del diario è disponibile in Dashboard.",
+      });
+      setScreen("dashboard");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore nel salvataggio";
+      toast({ title: msg, variant: "destructive" });
+    }
+  };
+
   const resetAll = async () => {
     if (!user) return;
     try {
@@ -276,6 +307,7 @@ const Index = () => {
       setPlan(null);
       setLogs([]);
       setLastAnalysis(null);
+      setRecentAnalyses([]);
       setConsentsAccepted(false);
       setScreen("frictionWall");
       toast({ title: "Tutti i tuoi dati sono stati cancellati." });
@@ -291,6 +323,7 @@ const Index = () => {
     setPlan(null);
     setLogs([]);
     setLastAnalysis(null);
+    setRecentAnalyses([]);
     setConsentsAccepted(false);
     setScreen("auth");
   };

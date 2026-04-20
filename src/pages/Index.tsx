@@ -33,6 +33,7 @@ import {
   loadLogs,
   loadPlan,
   loadProfile,
+  loadRecentAnalyses,
   resetAllForUser,
   saveAnalysis,
   saveConsents,
@@ -69,6 +70,7 @@ const Index = () => {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [safetyBlock, setSafetyBlock] = useState<(SafetyResult & { pendingLog: WorkoutLog }) | null>(null);
   const [lastAnalysis, setLastAnalysis] = useState<StoredAnalysis | null>(null);
+  const [recentAnalyses, setRecentAnalyses] = useState<StoredAnalysis[]>([]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -78,12 +80,13 @@ const Index = () => {
     }
     (async () => {
       try {
-        const [c, p, pl, lg, la] = await Promise.all([
+        const [c, p, pl, lg, la, ra] = await Promise.all([
           loadLatestConsents(user.id),
           loadProfile(user.id),
           loadPlan(user.id),
           loadLogs(user.id),
           loadLatestAnalysis(user.id),
+          loadRecentAnalyses(user.id, 3),
         ]);
         const okConsents = !!(c && c.c1 && c.c2 && c.c3);
         setConsentsAccepted(okConsents);
@@ -91,6 +94,7 @@ const Index = () => {
         if (pl) setPlan(pl);
         setLogs(lg);
         setLastAnalysis(la);
+        setRecentAnalyses(ra);
 
         if (!okConsents) setScreen("frictionWall");
         else if (!p || !pl) setScreen("onboarding");

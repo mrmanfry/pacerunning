@@ -31,12 +31,26 @@ export interface Week {
   sessions: Session[];
 }
 
+export type EstimateConfidence = "low" | "medium" | "high";
+
 export interface Plan {
   weeks: Week[];
   target: number;
   adjustedEstimate: number | null;
+  estimateLow?: number | null;
+  estimateHigh?: number | null;
+  estimateConfidence?: EstimateConfidence | null;
   shortPrep?: boolean; // true if < 3 weeks
   veryShortPrep?: boolean; // true if < 2 weeks
+}
+
+export interface EstimateDetail {
+  estimate: number;          // central minutes
+  low: number;               // lower band minutes
+  high: number;              // upper band minutes
+  confidence: EstimateConfidence;
+  usableSessions: number;    // count of sessions with weight >= 0.5
+  method: "riegel-hr" | "target-fallback";
 }
 
 export interface WorkoutLog {
@@ -636,21 +650,127 @@ export function analyzeWorkout(
   };
 }
 
-export function computeAdjustedEstimate(logs: WorkoutLog[], profile: Profile): number {
-  const qualityLogs = logs.filter(
-    (l) => !l.skipped && (l.sessionType === "quality" || l.sessionType === "long" || l.sessionType === "medium")
-  );
-  if (qualityLogs.length === 0) return profile.targetTime;
+// ---------- 10K estimation: Riegel + HR normalization, weighted ----------
+//
+// Per ogni sessione non saltata:
+//   1. paceAtRaceHR = pace / (hrRaceTarget / hrAvg)^k  con k=1.06, hrRaceTarget = 0.90 * hrMax
+//      (scala il ritmo alla FC tipica gara 10K, ~90% FCmax)
+//   2. estimated10K = paceAtRaceHR * 10 * (10 / distance)^0.06
+//      (correzione Riegel: T2 = T1*(D2/D1)^1.06; qui in forma pace*distance)
+//   3. peso = w_type * w_distance * w_recency
+//      type:    quality 1.0, medium 0.9, long 0.8, easy 0.4, altri 0.3
+//      dist:    <3km 0.5, <5km 0.8, >=5km 1.0
+//      recency: <=14gg 1.0, <=28gg 0.7, oltre 0.4
+//   4. media pesata + std pesata = banda
+//   5. blend con target dichiarato (20% target, 80% dati) per stabilità
+//
+// Confidenza:
+//   - low:    <3 sessioni con peso >= 0.5  → mostro target dichiarato + flag
+//   - medium: 3-5 sessioni utili
+//   - high:   >=6 sessioni utili con almeno una quality/medium nelle ultime 2 settimane
 
+const RIEGEL_K = 1.06;
+const HR_RACE_PCT = 0.90;
+const HR_K = 1.06;
+
+function sessionWeight(log: WorkoutLog, daysAgo: number): number {
+  const typeW: Record<string, number> = {
+    quality: 1.0,
+    medium: 0.9,
+    long: 0.8,
+    easy: 0.4,
+    race: 1.0,
+    freeform: 0.3,
+  };
+  const wType = typeW[log.sessionType] ?? 0.3;
+
+  const d = log.distance || 0;
+  const wDist = d < 3 ? 0.5 : d < 5 ? 0.8 : 1.0;
+
+  const wRec = daysAgo <= 14 ? 1.0 : daysAgo <= 28 ? 0.7 : 0.4;
+
+  return wType * wDist * wRec;
+}
+
+function singleSessionEstimate(log: WorkoutLog, hrMax: number): number | null {
+  if (!log.distance || !log.duration || !log.hrAvg) return null;
+  const paceMinKm = log.duration / log.distance;
+  const hrRaceTarget = hrMax * HR_RACE_PCT;
+  // Avoid scaling explosion if the session HR is way below the race target
+  // (lent very-low intensity sessions are downweighted, but cap the scaling).
+  const ratio = Math.max(0.5, Math.min(1.5, hrRaceTarget / log.hrAvg));
+  const paceAtRaceHR = paceMinKm / Math.pow(ratio, HR_K);
+  const distFactor = Math.pow(10 / log.distance, RIEGEL_K - 1); // = (10/D)^0.06
+  return paceAtRaceHR * 10 * distFactor;
+}
+
+export function computeEstimateDetail(logs: WorkoutLog[], profile: Profile): EstimateDetail {
   const { hrMax } = computeZones(profile);
-  const estimates = qualityLogs.map((log) => {
-    const paceMinKm = log.duration / log.distance;
-    const hrRatio = (hrMax * 0.9) / log.hrAvg;
-    return (paceMinKm / Math.sqrt(hrRatio)) * 10;
-  });
+  const target = profile.targetTime;
+  const now = Date.now();
 
-  const avgEst = estimates.reduce((a, b) => a + b, 0) / estimates.length;
-  return Math.round(avgEst * 0.7 + profile.targetTime * 0.3);
+  type Item = { est: number; weight: number; daysAgo: number; type: SessionType };
+  const items: Item[] = [];
+
+  for (const log of logs) {
+    if (log.skipped) continue;
+    const est = singleSessionEstimate(log, hrMax);
+    if (est == null || !isFinite(est) || est <= 0) continue;
+    const ts = log.loggedAt ? new Date(log.loggedAt).getTime() : now;
+    const daysAgo = Math.max(0, Math.floor((now - ts) / 86400000));
+    const w = sessionWeight(log, daysAgo);
+    items.push({ est, weight: w, daysAgo, type: log.sessionType });
+  }
+
+  const usable = items.filter((i) => i.weight >= 0.5);
+
+  // Not enough good data → fall back to declared target
+  if (usable.length < 3) {
+    return {
+      estimate: target,
+      low: target,
+      high: target,
+      confidence: "low",
+      usableSessions: usable.length,
+      method: "target-fallback",
+    };
+  }
+
+  const totalW = items.reduce((a, b) => a + b.weight, 0);
+  const weightedMean = items.reduce((a, b) => a + b.est * b.weight, 0) / totalW;
+  const weightedVar =
+    items.reduce((a, b) => a + b.weight * Math.pow(b.est - weightedMean, 2), 0) / totalW;
+  const sigma = Math.sqrt(Math.max(0, weightedVar));
+
+  // Blend with declared target (80% data / 20% target) for stability
+  const blended = weightedMean * 0.8 + target * 0.2;
+
+  // Band: ±σ, with a floor of 1' on each side so it never collapses to a single value
+  const halfBand = Math.max(1, sigma);
+  const low = blended - halfBand;
+  const high = blended + halfBand;
+
+  // Confidence
+  const hasRecentQuality = items.some(
+    (i) => (i.type === "quality" || i.type === "medium") && i.daysAgo <= 14 && i.weight >= 0.5
+  );
+  let confidence: EstimateConfidence = "medium";
+  if (usable.length >= 6 && hasRecentQuality) confidence = "high";
+  else if (usable.length < 3) confidence = "low";
+
+  return {
+    estimate: Math.round(blended),
+    low: Math.round(low),
+    high: Math.round(high),
+    confidence,
+    usableSessions: usable.length,
+    method: "riegel-hr",
+  };
+}
+
+// Backwards-compatible wrapper — returns just the central estimate.
+export function computeAdjustedEstimate(logs: WorkoutLog[], profile: Profile): number {
+  return computeEstimateDetail(logs, profile).estimate;
 }
 
 // ---------- Helpers ----------

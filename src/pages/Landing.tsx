@@ -4,7 +4,6 @@ import {
   ArrowRight,
   Calendar,
   Camera,
-  ChevronRight,
   Heart,
   Info,
   LineChart,
@@ -14,7 +13,6 @@ import {
   Sparkles,
   Target,
   TrendingUp,
-  Zap,
 } from "lucide-react";
 
 /**

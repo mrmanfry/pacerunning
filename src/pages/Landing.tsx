@@ -73,13 +73,9 @@ export default function Landing() {
           </div>
 
           <h1 className="display-font text-6xl sm:text-7xl md:text-8xl leading-[0.85] mb-6 max-w-4xl">
-            IL TUO<br />
-            DIARIO DI<br />
-            CORSA,<br />
-            LETTO DA<br />
-            UN <span className="text-signal">AMICO</span><br />
-            CHE CAPISCE<br />
-            I DATI.
+            HAI CORSO.<br />
+            HAI I <span className="text-signal">DATI</span>.<br />
+            E ADESSO?
           </h1>
 
           <p className="text-stone-300 text-lg md:text-xl leading-relaxed max-w-2xl mb-10">

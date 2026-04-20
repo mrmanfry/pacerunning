@@ -277,7 +277,7 @@ const Index = () => {
 
       try {
         const { data: aiData, error: aiError } = await supabase.functions.invoke("analyze-workout", {
-          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary, nextPlanned, plausibility },
+          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock },
         });
 
         if (aiError) {

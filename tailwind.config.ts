@@ -56,6 +56,7 @@ export default {
         signal: {
           DEFAULT: "hsl(var(--signal))",
           soft: "hsl(var(--signal-soft))",
+          600: "hsl(75 70% 38%)",
         },
         warn: "hsl(var(--warn))",
         danger: "hsl(var(--danger))",

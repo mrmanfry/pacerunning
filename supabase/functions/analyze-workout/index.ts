@@ -8,7 +8,7 @@ const corsHeaders = {
 
 // Bumpa questa stringa ogni volta che cambi il prompt o lo schema del tool.
 // Convenzione: vN-YYYY-MM-DD[-suffix]
-const PROMPT_VERSION = "v2-2025-04-21-xml";
+const PROMPT_VERSION = "v3-2025-04-21-mdr";
 const MODEL = "google/gemini-3-flash-preview";
 
 // ------------------------------------------------------------------

@@ -8,7 +8,7 @@ const corsHeaders = {
 
 // Bumpa questa stringa ogni volta che cambi il prompt o lo schema del tool.
 // Convenzione: vN-YYYY-MM-DD[-suffix]
-const PROMPT_VERSION = "v3-2025-04-21-mdr";
+const PROMPT_VERSION = "v4-2025-04-21-segments";
 const MODEL = "google/gemini-3-flash-preview";
 
 // ------------------------------------------------------------------
@@ -108,7 +108,19 @@ Quando proponi qualcosa, sempre come opzione descrittiva: "potresti", "una possi
 "i runner spesso trovano utile". Mai come istruzione clinica.
 
 Se serve invitare a fermarsi (sintomi, dolore reale): rimanda al medico, NON dare istruzioni terapeutiche.
-</mdr_compliance>`;
+</mdr_compliance>
+
+<segment_analysis>
+Se nel prompt arrivano <segments> espliciti (lap dell'allenamento) E sessione "quality" (ripetute):
+- Confronta esecuzione vs piano e da' un giudizio descrittivo per OGNI ripetuta interessante in segmentReadings.
+- Identifica fading in modo descrittivo, mai con parole come "deriva patologica" o "decompensazione".
+Se arrivano <kmSplits> E sessione "long"/"easy":
+- Cerca derive descrittive (km finali con FC più alta a parità di passo) o crisi (km significativamente più lenti).
+
+In segmentReadings: una entry SOLO per i segmenti con qualcosa di interessante da dire (max 8). Frasi brevi (max 25 parole).
+Esempio: { segmentIdx: 2, comment: "R1 dentro target, FC pulita" }.
+Se nulla di rilevante: segmentReadings = [].
+</segment_analysis>`;
 
 const FORBIDDEN_WORDS = [
   "sindrome",
@@ -153,14 +165,14 @@ Deno.serve(async (req) => {
     const userId = userData.user.id;
 
     const body = await req.json();
-    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns } = body || {};
+    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout } = body || {};
     if (!computed || !log || !profile) return json({ error: "Invalid payload" }, 400);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return json({ error: "AI not configured" }, 500);
 
     const userPrompt = buildUserPrompt({
-      computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns,
+      computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout,
     });
 
     const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -210,8 +222,21 @@ Deno.serve(async (req) => {
                     required: ["shouldAdjust", "reason", "newTargetEstimate", "message"],
                     additionalProperties: false,
                   },
+                  segmentReadings: {
+                    type: "array",
+                    description: "Commenti brevi per i segmenti interessanti (max 8). Vuoto se nulla di rilevante.",
+                    items: {
+                      type: "object",
+                      properties: {
+                        segmentIdx: { type: "integer" },
+                        comment: { type: "string", description: "Frase breve (max 25 parole), descrittiva" },
+                      },
+                      required: ["segmentIdx", "comment"],
+                      additionalProperties: false,
+                    },
+                  },
                 },
-                required: ["technicalReading", "sessionHighlight", "nextMove", "planAdjustment"],
+                required: ["technicalReading", "sessionHighlight", "nextMove", "planAdjustment", "segmentReadings"],
                 additionalProperties: false,
               },
             },
@@ -285,7 +310,7 @@ Deno.serve(async (req) => {
 });
 
 function buildUserPrompt(args: any): string {
-  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns } = args;
+  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout } = args;
   const recent = (recentSameType || [])
     .map(
       (r: any, i: number) =>
@@ -381,6 +406,23 @@ ${nextBlock}
 ${loadStateBlock}
 
 ${visualBlock}
+
+${(() => {
+  if (!extractedWorkout) return "";
+  const ew = extractedWorkout;
+  const segLines = (ew.segments || []).map((s: any) =>
+    `  ${s.idx}. [${s.type}] ${s.label} — ${s.durationSec ? Math.round(s.durationSec / 60) + "'" + String(s.durationSec % 60).padStart(2, "0") + "\"" : "n/d"}, FC ${s.hrAvg ?? "n/d"}/${s.hrMax ?? "n/d"}, pace ${s.paceSecPerKm ? Math.floor(s.paceSecPerKm / 60) + "'" + String(s.paceSecPerKm % 60).padStart(2, "0") + "\"/km" : "n/d"}`
+  ).join("\n");
+  const splitLines = (ew.kmSplits || []).map((k: any) =>
+    `  km ${k.km}: pace ${k.paceSecPerKm ? Math.floor(k.paceSecPerKm / 60) + "'" + String(k.paceSecPerKm % 60).padStart(2, "0") + "\"" : "n/d"}, FC ${k.hrAvg ?? "n/d"}`
+  ).join("\n");
+  const zones = (ew.hrZones || []).map((z: any) => `Z${z.zone}: ${z.percent}%`).join(" · ");
+  const blocks: string[] = [];
+  if (segLines) blocks.push(`<segments>\nSegmenti / lap espliciti dell'allenamento:\n${segLines}\n</segments>`);
+  if (splitLines) blocks.push(`<kmSplits>\nParziali per km:\n${splitLines}\n</kmSplits>`);
+  if (zones) blocks.push(`<hrZones>\nDistribuzione tempo per zone FC: ${zones}\n</hrZones>`);
+  return blocks.join("\n\n");
+})()}
 
 ISTRUZIONI ESECUTIVE:
 1. **Plausibilità prima di tutto**: se status è "DATI IMPLAUSIBILI", segui <implausible_data> nel system prompt e metti planAdjustment.shouldAdjust=false.

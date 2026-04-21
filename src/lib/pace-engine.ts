@@ -94,6 +94,73 @@ export interface PlausibilityResult {
   issues: PlausibilityIssue[];
 }
 
+// ---------- ExtractedWorkout (deep extraction from screenshots) ----------
+export type SegmentKind = "warmup" | "interval" | "recovery" | "cooldown" | "steady" | "other";
+
+export interface ExtractedSegment {
+  idx: number;
+  label: string;
+  type: SegmentKind;
+  durationSec: number | null;
+  distanceKm: number | null;
+  paceSecPerKm: number | null;
+  hrAvg: number | null;
+  hrMax: number | null;
+}
+
+export interface ExtractedKmSplit {
+  km: number;
+  paceSecPerKm: number | null;
+  hrAvg: number | null;
+  hrMax: number | null;
+  elevDelta: number | null;
+}
+
+export interface ExtractedSeriesPoint {
+  tSec: number;
+  value: number;
+}
+
+export interface ExtractedHrZoneSlice {
+  zone: number;
+  percent: number;
+}
+
+export interface ExtractedTotals {
+  duration: number | null;
+  distance: number | null;
+  hrAvg: number | null;
+  hrMax: number | null;
+  cadence: number | null;
+  calories: number | null;
+  elevGain: number | null;
+}
+
+export interface ExtractedVisualPatterns {
+  hrPattern: "stable" | "creep" | "spiky" | "fading" | null;
+  paceStrategy: "even" | "negative-split" | "positive-split" | "intervals" | null;
+  observations: string[];
+}
+
+export interface ExtractedWorkout {
+  totals: ExtractedTotals;
+  kmSplits: ExtractedKmSplit[];
+  segments: ExtractedSegment[];
+  hrSeries: { samplingHintSec: number; points: { tSec: number; hr: number }[] } | null;
+  paceSeries: { points: { tSec: number; paceSecPerKm: number }[] } | null;
+  hrZones: ExtractedHrZoneSlice[];
+  visualPatterns: ExtractedVisualPatterns;
+  detectedApp: string | null;
+  confidence: "high" | "medium" | "low" | null;
+  sourceImagesUsed: number;
+  validation?: {
+    durationConsistency: "ok" | "mismatch" | "n/a";
+    distanceConsistency: "ok" | "mismatch" | "n/a";
+    hrAvgConsistency: "ok" | "mismatch" | "n/a";
+    notes: string[];
+  };
+}
+
 // Physiological / common-sense bounds. Anything outside these is either a typo
 // or impossible for a human runner. The estimate engine excludes "impossible"
 // sessions; the AI coach is told NOT to celebrate them.

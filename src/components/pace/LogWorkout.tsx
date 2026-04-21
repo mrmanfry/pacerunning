@@ -5,11 +5,17 @@ import { uploadWorkoutScreenshot } from "@/lib/pace-repository";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
+export type VisualPatterns = {
+  hrPattern?: "stable" | "creep" | "spiky" | "fading" | null;
+  paceStrategy?: "even" | "negative-split" | "positive-split" | "intervals" | null;
+  observations?: string[];
+};
+
 interface Props {
   session: { data: Session; weekIdx: number; sessionIdx: number } | null;
   userId: string | null;
   onBack: () => void;
-  onSave: (log: WorkoutLog) => void;
+  onSave: (log: WorkoutLog, visualPatterns?: VisualPatterns | null) => void;
 }
 
 type AutoFlags = {

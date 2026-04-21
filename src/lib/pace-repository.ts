@@ -190,7 +190,12 @@ export interface StoredAnalysis {
 export async function saveAnalysis(
   userId: string,
   logId: string,
-  a: { technicalReading?: string | null; sessionHighlight?: string | null; nextMove?: string | null }
+  a: {
+    technicalReading?: string | null;
+    sessionHighlight?: string | null;
+    nextMove?: string | null;
+    promptVersion?: string | null;
+  }
 ) {
   const { error } = await supabase.from("workout_analyses").insert({
     user_id: userId,
@@ -198,6 +203,7 @@ export async function saveAnalysis(
     technical_reading: a.technicalReading ?? null,
     session_highlight: a.sessionHighlight ?? null,
     next_move: a.nextMove ?? null,
+    prompt_version: a.promptVersion ?? null,
   });
   if (error) throw error;
 }

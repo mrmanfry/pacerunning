@@ -6,20 +6,50 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const SYSTEM_PROMPT = `Sei un estrattore di dati da screenshot di app fitness (Apple Salute, Strava, Garmin, Nike Run Club, ecc.).
+const PROMPT_VERSION = "v2-2025-04-21-vision";
+const MODEL = "google/gemini-2.5-flash-lite";
 
-REGOLE FERREE:
+const SYSTEM_PROMPT = `<role>
+Sei un estrattore di dati da screenshot di app fitness (Apple Salute, Strava, Garmin, Nike Run Club, ecc.).
+Estrai numeri visibili e leggi i pattern qualitativi del grafico in modo strettamente DESCRITTIVO.
+</role>
+
+<extraction_rules>
 1. Estrai SOLO numeri chiaramente visibili nello screenshot.
 2. Se un valore non è visibile o è ambiguo, restituisci null per quel campo.
 3. NON inventare valori, NON stimare, NON arrotondare creativamente.
-4. Converti tutto nelle unità richieste:
-   - duration: minuti totali (numero decimale, es. "32:15" -> 32.25)
-   - distance: chilometri (numero decimale)
-   - hrAvg, hrMax: battiti per minuto (intero)
-   - cadence: passi al minuto (intero, somma dei due piedi)
-5. Se vedi pace/passo invece di durata, calcola la durata SOLO se hai anche distanza certa.
+4. Conversioni:
+   - duration: minuti totali (decimale; es. "32:15" -> 32.25)
+   - distance: chilometri (decimale)
+   - hrAvg, hrMax: bpm (intero)
+   - cadence: passi/min (intero, somma dei due piedi)
+5. Se vedi pace/passo invece della durata, calcola la durata SOLO se hai anche distanza certa.
+</extraction_rules>
 
-Restituisci SEMPRE un oggetto strutturato via tool call.`;
+<visual_patterns>
+Se nello screenshot è visibile un grafico di frequenza cardiaca o di passo nel tempo, leggi:
+
+- hrPattern (uno tra: "stable", "creep", "spiky", "fading", null se non visibile o non leggibile):
+  * stable = la curva resta piatta entro una banda stretta
+  * creep = la curva sale in modo progressivo nel tempo a parità di passo
+  * spiky = picchi e valli marcati (tipico di ripetute)
+  * fading = la curva scende verso la fine (calo)
+
+- paceStrategy (uno tra: "even", "negative-split", "positive-split", "intervals", null):
+  * even = passo uniforme dall'inizio alla fine
+  * negative-split = la seconda metà è più veloce della prima
+  * positive-split = la prima metà è più veloce della seconda
+  * intervals = alternanza forte tra spinte e recuperi
+
+- observations: array di 0-3 stringhe DESCRITTIVE in italiano, mai cliniche.
+  Esempi OK: "la frequenza è salita dai 155 ai 170 bpm negli ultimi 15'", "passo uniforme intorno ai 5'30/km", "apertura veloce poi assestamento".
+  Esempi VIETATI: "deriva cardiaca patologica", "decompensazione", "anomalia ritmica", "soffri di".
+</visual_patterns>
+
+<output>
+Restituisci SEMPRE l'oggetto via tool call extract_workout_metrics.
+Se il grafico non è leggibile o non c'è, hrPattern/paceStrategy=null e observations=[].
+</output>`;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -38,6 +68,7 @@ Deno.serve(async (req) => {
 
     const { data: userData, error: userErr } = await supabase.auth.getUser();
     if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
+    const userId = userData.user.id;
 
     const body = await req.json();
     const { imagePath, sessionType } = body || {};
@@ -45,7 +76,6 @@ Deno.serve(async (req) => {
       return json({ error: "imagePath required" }, 400);
     }
 
-    // Generate signed URL for the image
     const { data: signed, error: signedErr } = await supabase.storage
       .from("workout-screenshots")
       .createSignedUrl(imagePath, 60);
@@ -58,6 +88,8 @@ Deno.serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return json({ error: "AI not configured" }, 500);
 
+    const userPrompt = `Estrai i dati di questo allenamento (tipo: ${sessionType || "freeform"}). Solo numeri visibili. null per i campi mancanti. Se è visibile un grafico FC/pace nel tempo, popola anche hrPattern, paceStrategy e observations in modo descrittivo (mai clinico).`;
+
     const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -65,16 +97,13 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: MODEL,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           {
             role: "user",
             content: [
-              {
-                type: "text",
-                text: `Estrai i dati di questo allenamento (tipo: ${sessionType || "freeform"}). Solo numeri visibili. null per i campi mancanti.`,
-              },
+              { type: "text", text: userPrompt },
               { type: "image_url", image_url: { url: signed.signedUrl } },
             ],
           },
@@ -84,7 +113,7 @@ Deno.serve(async (req) => {
             type: "function",
             function: {
               name: "extract_workout_metrics",
-              description: "Restituisce le metriche estratte dallo screenshot",
+              description: "Restituisce le metriche estratte dallo screenshot e i pattern visivi descrittivi",
               parameters: {
                 type: "object",
                 properties: {
@@ -95,6 +124,21 @@ Deno.serve(async (req) => {
                   cadence: { type: ["integer", "null"], description: "Cadenza in passi/min" },
                   detectedApp: { type: "string", description: "App di provenienza riconosciuta" },
                   confidence: { type: "string", enum: ["high", "medium", "low"] },
+                  hrPattern: {
+                    type: ["string", "null"],
+                    enum: ["stable", "creep", "spiky", "fading", null],
+                    description: "Andamento qualitativo della FC nel grafico, null se non leggibile",
+                  },
+                  paceStrategy: {
+                    type: ["string", "null"],
+                    enum: ["even", "negative-split", "positive-split", "intervals", null],
+                    description: "Strategia di passo letta dal grafico, null se non leggibile",
+                  },
+                  observations: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "0-3 osservazioni descrittive in italiano (mai cliniche)",
+                  },
                 },
                 required: ["duration", "distance", "hrAvg", "hrMax", "cadence", "confidence"],
                 additionalProperties: false,
@@ -107,21 +151,70 @@ Deno.serve(async (req) => {
     });
 
     if (!aiResp.ok) {
+      const errText = await aiResp.text().catch(() => "");
+      void supabase.from("ai_requests").insert({
+        user_id: userId,
+        function_name: "extract-workout-data",
+        model: MODEL,
+        prompt_version: PROMPT_VERSION,
+        log_id: null,
+        system_prompt: SYSTEM_PROMPT,
+        user_prompt: userPrompt,
+        response: null,
+        status: "error",
+        error_message: `${aiResp.status}: ${errText.slice(0, 500)}`,
+      });
       if (aiResp.status === 429) return json({ error: "rate_limit" }, 429);
       if (aiResp.status === 402) return json({ error: "credits_exhausted" }, 402);
-      const t = await aiResp.text();
-      console.error("AI gateway error:", aiResp.status, t);
+      console.error("AI gateway error:", aiResp.status, errText);
       return json({ error: "AI gateway error" }, 500);
     }
 
     const aiData = await aiResp.json();
     const toolCall = aiData?.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall?.function?.arguments) {
+      void supabase.from("ai_requests").insert({
+        user_id: userId,
+        function_name: "extract-workout-data",
+        model: MODEL,
+        prompt_version: PROMPT_VERSION,
+        log_id: null,
+        system_prompt: SYSTEM_PROMPT,
+        user_prompt: userPrompt,
+        response: aiData ?? null,
+        status: "error",
+        error_message: "No structured output",
+      });
       return json({ error: "No structured output from AI" }, 500);
     }
 
     const extracted = JSON.parse(toolCall.function.arguments);
-    return json({ extracted });
+
+    // Sanity check sul linguaggio delle observations (paranoia leggera)
+    if (Array.isArray(extracted.observations)) {
+      const banned = ["patolog", "diagnos", "decompens", "deriva cardiaca patologica", "anomalia"];
+      extracted.observations = extracted.observations
+        .filter((o: any) => typeof o === "string" && o.length > 0 && o.length < 200)
+        .filter((o: string) => !banned.some((b) => o.toLowerCase().includes(b)))
+        .slice(0, 3);
+    } else {
+      extracted.observations = [];
+    }
+
+    void supabase.from("ai_requests").insert({
+      user_id: userId,
+      function_name: "extract-workout-data",
+      model: MODEL,
+      prompt_version: PROMPT_VERSION,
+      log_id: null,
+      system_prompt: SYSTEM_PROMPT,
+      user_prompt: userPrompt,
+      response: extracted as Record<string, unknown>,
+      status: "success",
+      error_message: null,
+    });
+
+    return json({ extracted, promptVersion: PROMPT_VERSION, model: MODEL });
   } catch (e) {
     console.error("extract-workout-data error:", e);
     return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500);

@@ -14,6 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_requests: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          function_name: string
+          id: string
+          log_id: string | null
+          model: string
+          prompt_version: string | null
+          response: Json | null
+          status: string
+          system_prompt: string | null
+          user_id: string
+          user_prompt: string | null
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          function_name: string
+          id?: string
+          log_id?: string | null
+          model: string
+          prompt_version?: string | null
+          response?: Json | null
+          status?: string
+          system_prompt?: string | null
+          user_id: string
+          user_prompt?: string | null
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          function_name?: string
+          id?: string
+          log_id?: string | null
+          model?: string
+          prompt_version?: string | null
+          response?: Json | null
+          status?: string
+          system_prompt?: string | null
+          user_id?: string
+          user_prompt?: string | null
+        }
+        Relationships: []
+      }
       consents: {
         Row: {
           accepted_at: string
@@ -137,6 +182,7 @@ export type Database = {
           id: string
           log_id: string
           next_move: string | null
+          prompt_version: string | null
           session_highlight: string | null
           technical_reading: string | null
           user_id: string
@@ -146,6 +192,7 @@ export type Database = {
           id?: string
           log_id: string
           next_move?: string | null
+          prompt_version?: string | null
           session_highlight?: string | null
           technical_reading?: string | null
           user_id: string
@@ -155,6 +202,7 @@ export type Database = {
           id?: string
           log_id?: string
           next_move?: string | null
+          prompt_version?: string | null
           session_highlight?: string | null
           technical_reading?: string | null
           user_id?: string

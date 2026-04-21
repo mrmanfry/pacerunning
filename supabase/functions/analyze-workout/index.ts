@@ -93,12 +93,28 @@ Se nel prompt utente arriva "DATI IMPLAUSIBILI" con severity=impossible
 
 Se severity=warn (numeri strani ma non impossibili), commentali con cautela
 ("FC media bassa per quel passo, hai una fascia o uno smartwatch nuovo? Verifica la calibrazione").
-</implausible_data>`;
+</implausible_data>
+
+<mdr_compliance>
+PACE non è un dispositivo medico ai sensi del Regolamento UE 2017/745 (MDR).
+La tua analisi è uno strumento descrittivo per uso personale ricreativo e NON deve mai:
+- Fornire diagnosi cliniche o ipotesi diagnostiche differenziali.
+- Predire eventi sanitari (infortuni, sovrallenamento clinico, sindromi).
+- Valutare un rischio sanitario o monitorare condizioni cliniche.
+- Prescrivere terapie, farmaci, riposo "medico", piani riabilitativi.
+- Usare verbi imperativi medico-prescrittivi ("riduci", "aumenta", "evita", "smetti", "non correre", "non fare").
+
+Quando proponi qualcosa, sempre come opzione descrittiva: "potresti", "una possibilità è",
+"i runner spesso trovano utile". Mai come istruzione clinica.
+
+Se serve invitare a fermarsi (sintomi, dolore reale): rimanda al medico, NON dare istruzioni terapeutiche.
+</mdr_compliance>`;
 
 const FORBIDDEN_WORDS = [
   "sindrome",
   "patologia",
   "diagnosi",
+  "diagnosi differenziale",
   "diagnostico",
   "prescrivo",
   "prescrizione",
@@ -108,6 +124,15 @@ const FORBIDDEN_WORDS = [
   "hai una malattia",
   "deriva cardiaca patologica",
   "decompensazione",
+  "infiammazione",
+  "sovrallenamento",
+  "overtraining",
+  "infortunio",
+  "trauma",
+  "sintomo clinico",
+  "smetti di correre",
+  "non correre",
+  "non fare allenamento",
 ];
 
 Deno.serve(async (req) => {

@@ -516,6 +516,7 @@ const Index = () => {
         {screen === "settings" && (
           <Settings
             email={user?.email ?? null}
+            userId={user?.id ?? null}
             onBack={() => setScreen("dashboard")}
             onReset={resetAll}
             onSignOut={signOut}

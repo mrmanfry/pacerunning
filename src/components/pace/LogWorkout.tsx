@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ArrowLeft, Activity, Clock, Heart, Flame, Sparkles, Info, Camera, Loader2, Wand2 } from "lucide-react";
-import type { Session, SessionType, WorkoutLog } from "@/lib/pace-engine";
+import type { ExtractedWorkout, Session, SessionType, WorkoutLog } from "@/lib/pace-engine";
 import { uploadWorkoutScreenshot } from "@/lib/pace-repository";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
@@ -11,11 +11,22 @@ export type VisualPatterns = {
   observations?: string[];
 };
 
+export type ExtractionMeta = {
+  extractedWorkout: ExtractedWorkout | null;
+  sourceImagePaths: string[];
+  promptVersion: string | null;
+  model: string | null;
+};
+
 interface Props {
   session: { data: Session; weekIdx: number; sessionIdx: number } | null;
   userId: string | null;
   onBack: () => void;
-  onSave: (log: WorkoutLog, visualPatterns?: VisualPatterns | null) => void;
+  onSave: (
+    log: WorkoutLog,
+    visualPatterns?: VisualPatterns | null,
+    extraction?: ExtractionMeta | null,
+  ) => void;
 }
 
 type AutoFlags = {
@@ -41,6 +52,7 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
   const [extracting, setExtracting] = useState(false);
   const [extractFailed, setExtractFailed] = useState(false);
   const [visualPatterns, setVisualPatterns] = useState<VisualPatterns | null>(null);
+  const [extractionMeta, setExtractionMeta] = useState<ExtractionMeta | null>(null);
 
   const MAX_IMAGES = 4;
   const canSave = data.duration > 0 && data.distance > 0 && data.hrAvg > 0;
@@ -118,6 +130,14 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
       };
       const hasVp = vp.hrPattern || vp.paceStrategy || (vp.observations && vp.observations.length > 0);
       setVisualPatterns(hasVp ? vp : null);
+
+      // Persist deep extraction so Index can pass it to the coach + save it linked to the log
+      setExtractionMeta({
+        extractedWorkout: result?.extractedWorkout ?? null,
+        sourceImagePaths: Array.isArray(result?.sourceImagePaths) ? result.sourceImagePaths : paths,
+        promptVersion: result?.promptVersion ?? null,
+        model: result?.model ?? null,
+      });
 
       const filledCount = Object.keys(flags).length;
       if (filledCount === 0) {
@@ -301,6 +321,7 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
                 notes: data.notes,
               },
               visualPatterns,
+              extractionMeta,
             )
           }
           className={`w-full py-4 rounded-full font-bold tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${

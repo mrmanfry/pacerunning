@@ -40,6 +40,7 @@ import {
   resetAllForUser,
   saveAnalysis,
   saveConsents,
+  saveExtraction,
   savePlan,
   saveProfile,
   type StoredAnalysis,
@@ -162,7 +163,11 @@ const Index = () => {
     }
   };
 
-  const saveLog = async (log: WorkoutLog, visualPatterns?: import("@/components/pace/LogWorkout").VisualPatterns | null) => {
+  const saveLog = async (
+    log: WorkoutLog,
+    visualPatterns?: import("@/components/pace/LogWorkout").VisualPatterns | null,
+    extraction?: import("@/components/pace/LogWorkout").ExtractionMeta | null,
+  ) => {
     if (!user || !profile || !plan) return;
     const safety = checkSafetyFlags(log, profile, logs);
     if (safety.block) {
@@ -170,16 +175,34 @@ const Index = () => {
       setScreen("safetyAlert");
       return;
     }
-    await persistLog(log, visualPatterns ?? null);
+    await persistLog(log, visualPatterns ?? null, extraction ?? null);
   };
 
-  const persistLog = async (log: WorkoutLog, visualPatterns?: import("@/components/pace/LogWorkout").VisualPatterns | null) => {
+  const persistLog = async (
+    log: WorkoutLog,
+    visualPatterns?: import("@/components/pace/LogWorkout").VisualPatterns | null,
+    extraction?: import("@/components/pace/LogWorkout").ExtractionMeta | null,
+  ) => {
     if (!user || !profile || !plan) return;
     try {
       const inserted = await insertLog(user.id, log);
       const fullLog: WorkoutLog = { ...log, id: inserted.id, loggedAt: inserted.loggedAt };
       const newLogs = [...logs, fullLog];
       setLogs(newLogs);
+
+      // Persist deep extraction (if any) linked to this freshly created log
+      const extractedWorkout = extraction?.extractedWorkout ?? null;
+      if (extraction && extractedWorkout) {
+        try {
+          await saveExtraction(user.id, fullLog.id ?? null, extractedWorkout, {
+            sourceImagePaths: extraction.sourceImagePaths,
+            promptVersion: extraction.promptVersion,
+            model: extraction.model,
+          });
+        } catch (extErr) {
+          console.error("saveExtraction error:", extErr);
+        }
+      }
 
       // Recompute load state with the new log included
       const loadInputs = newLogs.map((l) => ({
@@ -285,7 +308,18 @@ const Index = () => {
 
       try {
         const { data: aiData, error: aiError } = await supabase.functions.invoke("analyze-workout", {
-          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns: visualPatterns ?? null },
+          body: {
+            computed,
+            log: fullLog,
+            profile,
+            recentSameType,
+            allLogsSummary,
+            nextPlanned,
+            plausibility,
+            loadBlock,
+            visualPatterns: visualPatterns ?? null,
+            extractedWorkout: extractedWorkout ?? null,
+          },
         });
 
         if (aiError) {
@@ -297,20 +331,24 @@ const Index = () => {
         } else if (aiData?.analysis) {
           const ai = aiData.analysis;
           const promptVersion: string | null = aiData?.promptVersion ?? null;
+          const segmentReadings = Array.isArray(ai.segmentReadings) ? ai.segmentReadings : [];
           setAnalysis({
             ...baseAnalysis,
             technicalReading: ai.technicalReading,
             sessionHighlight: ai.sessionHighlight,
             aiNextMove: ai.nextMove,
             planAdjustment: ai.planAdjustment,
+            segmentReadings,
+            extractedWorkout: extractedWorkout ?? null,
             source: "ai",
           });
-          // Persist coach analysis tied to this log
+          // Persist coach analysis tied to this log (incl. segmentReadings)
           try {
             await saveAnalysis(user.id, fullLog.id!, {
               technicalReading: ai.technicalReading ?? null,
               sessionHighlight: ai.sessionHighlight ?? null,
               nextMove: ai.nextMove ?? null,
+              segmentReadings: segmentReadings.length > 0 ? segmentReadings : null,
               promptVersion,
             });
             const fresh: StoredAnalysis = {
@@ -319,6 +357,7 @@ const Index = () => {
               technicalReading: ai.technicalReading ?? null,
               sessionHighlight: ai.sessionHighlight ?? null,
               nextMove: ai.nextMove ?? null,
+              segmentReadings: segmentReadings.length > 0 ? segmentReadings : null,
               createdAt: new Date().toISOString(),
             };
             setLastAnalysis(fresh);
@@ -327,11 +366,11 @@ const Index = () => {
             console.error("saveAnalysis error:", saveErr);
           }
         } else {
-          setAnalysis(baseAnalysis);
+          setAnalysis({ ...baseAnalysis, extractedWorkout: extractedWorkout ?? null });
         }
       } catch (err) {
         console.error("AI analysis error:", err);
-        setAnalysis(baseAnalysis);
+        setAnalysis({ ...baseAnalysis, extractedWorkout: extractedWorkout ?? null });
       } finally {
         setAnalysisLoading(false);
       }

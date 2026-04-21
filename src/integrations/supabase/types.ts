@@ -65,7 +65,10 @@ export type Database = {
           c1: boolean
           c2: boolean
           c3: boolean
+          c4_health_data: boolean
+          consent_version: string
           id: string
+          terms_version: string
           user_id: string
         }
         Insert: {
@@ -73,7 +76,10 @@ export type Database = {
           c1: boolean
           c2: boolean
           c3: boolean
+          c4_health_data?: boolean
+          consent_version?: string
           id?: string
+          terms_version?: string
           user_id: string
         }
         Update: {
@@ -81,7 +87,10 @@ export type Database = {
           c1?: boolean
           c2?: boolean
           c3?: boolean
+          c4_health_data?: boolean
+          consent_version?: string
           id?: string
+          terms_version?: string
           user_id?: string
         }
         Relationships: []

@@ -52,6 +52,7 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
   const [extracting, setExtracting] = useState(false);
   const [extractFailed, setExtractFailed] = useState(false);
   const [visualPatterns, setVisualPatterns] = useState<VisualPatterns | null>(null);
+  const [extractionMeta, setExtractionMeta] = useState<ExtractionMeta | null>(null);
 
   const MAX_IMAGES = 4;
   const canSave = data.duration > 0 && data.distance > 0 && data.hrAvg > 0;
@@ -129,6 +130,14 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
       };
       const hasVp = vp.hrPattern || vp.paceStrategy || (vp.observations && vp.observations.length > 0);
       setVisualPatterns(hasVp ? vp : null);
+
+      // Persist deep extraction so Index can pass it to the coach + save it linked to the log
+      setExtractionMeta({
+        extractedWorkout: result?.extractedWorkout ?? null,
+        sourceImagePaths: Array.isArray(result?.sourceImagePaths) ? result.sourceImagePaths : paths,
+        promptVersion: result?.promptVersion ?? null,
+        model: result?.model ?? null,
+      });
 
       const filledCount = Object.keys(flags).length;
       if (filledCount === 0) {

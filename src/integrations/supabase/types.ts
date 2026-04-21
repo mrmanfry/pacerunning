@@ -218,6 +218,39 @@ export type Database = {
         }
         Relationships: []
       }
+      workout_extractions: {
+        Row: {
+          created_at: string
+          id: string
+          log_id: string | null
+          model: string | null
+          prompt_version: string | null
+          raw_extraction: Json
+          source_image_paths: string[]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          log_id?: string | null
+          model?: string | null
+          prompt_version?: string | null
+          raw_extraction: Json
+          source_image_paths?: string[]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          log_id?: string | null
+          model?: string | null
+          prompt_version?: string | null
+          raw_extraction?: Json
+          source_image_paths?: string[]
+          user_id?: string
+        }
+        Relationships: []
+      }
       workout_logs: {
         Row: {
           cadence: number | null

@@ -6,160 +6,353 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const PROMPT_VERSION = "v4-2025-04-21-apple-fitness";
-const PRIMARY_MODEL = "google/gemini-2.5-flash";
-const FALLBACK_MODEL = "google/gemini-2.5-pro";
+const PROMPT_VERSION = "v5-2025-04-21-deep";
+const TRIAGE_MODEL = "google/gemini-2.5-flash";
+const DEEP_MODEL = "google/gemini-2.5-pro";
 const MAX_IMAGES = 4;
-const MIN_FIELDS_FOR_SUCCESS = 2; // sotto questa soglia tentiamo il fallback su pro
+const HR_SERIES_TARGET_POINTS = 30;
 
-const SYSTEM_PROMPT = `<role>
-Sei un estrattore di dati da screenshot di app fitness (Apple Salute / Apple Fitness, Strava, Garmin, Nike Run Club, ecc.).
-Estrai numeri visibili e leggi i pattern qualitativi del grafico in modo strettamente DESCRITTIVO.
-</role>
+// =====================================================================
+// STEP 1 — TRIAGE PROMPT
+// =====================================================================
+const TRIAGE_SYSTEM_PROMPT = `Sei un classificatore di screenshot di app fitness.
+Per ogni immagine ricevuta in ordine, identifica quali di questi blocchi di contenuto sono presenti:
 
-<multi_image_rules>
-L'utente può caricare fino a ${MAX_IMAGES} screenshot dello STESSO allenamento (es. una schermata col riepilogo, un'altra coi parziali km, un'altra coi segmenti / grafico FC).
-- Considera tutte le immagini come UN UNICO allenamento.
-- Per ogni metrica, prendi il valore dalla schermata in cui è più chiaro e leggibile.
-- Se la stessa metrica appare in più immagini con valori diversi, scegli quella con la fonte più affidabile (riepilogo principale > parziali > segmenti) e ignora le altre.
-- Se in nessuna immagine il valore è chiaro, restituisci null per quel campo.
-</multi_image_rules>
+- "summary": riepilogo principale con totali (durata, distanza, FC media...)
+- "kmSplits": tabella dei parziali per chilometro
+- "segments": elenco di segmenti / lap (riscaldamento, ripetute, recuperi)
+- "hrChart": grafico della frequenza cardiaca nel tempo
+- "paceChart": grafico del passo nel tempo
+- "hrZones": breakdown del tempo per zone di FC
+- "other": niente di rilevante
 
-<extraction_rules>
-1. Estrai SOLO numeri chiaramente visibili negli screenshot.
-2. Se un valore non è visibile o è ambiguo in tutte le immagini, restituisci null per quel campo.
-3. NON inventare valori, NON stimare, NON arrotondare creativamente.
-4. Conversioni:
-   - duration: minuti totali in DECIMALE.
-     * Formato "h:mm:ss" (es. Apple Fitness "0:45:00") -> 45.0
-     * Formato "1:05:30" -> 65.5
-     * Formato "mm:ss" (es. "32:15") -> 32.25
-     * Formato "45 min" o "0h 45m" -> 45.0
-   - distance: chilometri in DECIMALE.
-     * IMPORTANTE: il separatore decimale può essere VIRGOLA (formato europeo: "7,59 km") o PUNTO ("7.59 km"). Trattali come equivalenti -> 7.59.
-     * Se vedi solo metri (es. "7590 m"), converti in km -> 7.59.
-   - hrAvg, hrMax: bpm (intero).
-   - cadence: passi/min (intero).
-     * Apple Fitness mostra "ppm" (passi per minuto) come valore GIÀ TOTALE (somma dei due piedi). Riportalo così com'è (es. "155 ppm" -> 155).
-     * Se l'app mostra cadenza "spm" o "passi/min" già totali, idem.
-     * NON moltiplicare per 2.
-5. Se vedi pace/passo invece della durata, calcola la durata SOLO se hai anche distanza certa.
-</extraction_rules>
+Rispondi via tool call classify_images. Non inventare blocchi che non vedi.`;
 
-<hr_max_rules>
-La FC massima (hrMax) può apparire in posizioni diverse:
-1. Come numero esplicito nel riepilogo (es. "FC max: 183 bpm").
-2. Come label sull'asse Y in alto del GRAFICO della frequenza cardiaca (es. Apple Fitness mostra "183" in alto a destra del grafico FC).
-3. Come valore massimo nei segmenti / parziali (la riga col bpm più alto).
-Usa la fonte più affidabile in quest'ordine: 1 > 2 > 3. Se nessuna è leggibile, hrMax = null.
-</hr_max_rules>
-
-<apple_fitness_examples>
-Esempi reali di lettura da Apple Fitness / Apple Salute (in italiano):
-
-Riepilogo "Corsa outdoor":
-- "Durata allenamento 0:45:00" -> duration = 45.0
-- "Distanza 7,59 KM" -> distance = 7.59
-- "Media battito 165 BPM" -> hrAvg = 165
-- "Media cadenza 155 PPM" -> cadence = 155
-- "Media ritmo 5'56'' /KM" -> NON è duration, è pace; usalo solo per validare distance se serve.
-
-Grafico "Frequenza cardiaca":
-- Asse Y in alto mostra "183" -> hrMax = 183 (se non c'è un valore esplicito altrove).
-
-Segmenti / Parziali:
-- Una colonna "Battito cardiaco" con righe "146 BPM, 171 BPM, ..., 177 BPM, ...": il MAX in quella colonna è hrMax candidato (priorità inferiore al grafico).
-- Le righe parziali NON sono la durata totale, sono spezzoni.
-</apple_fitness_examples>
-
-<visual_patterns>
-Se in una delle immagini è visibile un grafico di frequenza cardiaca o di passo nel tempo, leggi:
-
-- hrPattern (uno tra: "stable", "creep", "spiky", "fading", null se non visibile o non leggibile):
-  * stable = la curva resta piatta entro una banda stretta
-  * creep = la curva sale in modo progressivo nel tempo a parità di passo
-  * spiky = picchi e valli marcati (tipico di ripetute)
-  * fading = la curva scende verso la fine (calo)
-
-- paceStrategy (uno tra: "even", "negative-split", "positive-split", "intervals", null):
-  * even = passo uniforme dall'inizio alla fine
-  * negative-split = la seconda metà è più veloce della prima
-  * positive-split = la prima metà è più veloce della seconda
-  * intervals = alternanza forte tra spinte e recuperi
-
-- observations: array di 0-3 stringhe DESCRITTIVE in italiano, mai cliniche.
-  Esempi OK: "la frequenza è salita dai 155 ai 170 bpm negli ultimi 15'", "passo uniforme intorno ai 5'30/km", "apertura veloce poi assestamento".
-  Esempi VIETATI: "deriva cardiaca patologica", "decompensazione", "anomalia ritmica", "soffri di".
-</visual_patterns>
-
-<output>
-Restituisci SEMPRE l'oggetto via tool call extract_workout_metrics.
-Se nessun grafico è leggibile, hrPattern/paceStrategy=null e observations=[].
-</output>`;
-
-const TOOL_SCHEMA = {
+const TRIAGE_TOOL = {
   type: "function" as const,
   function: {
-    name: "extract_workout_metrics",
-    description: "Restituisce le metriche estratte dagli screenshot e i pattern visivi descrittivi",
+    name: "classify_images",
+    description: "Classifica i blocchi presenti in ogni screenshot.",
     parameters: {
       type: "object",
       properties: {
-        duration: { type: ["number", "null"], description: "Durata totale in minuti (decimale)" },
-        distance: { type: ["number", "null"], description: "Distanza in chilometri (decimale)" },
-        hrAvg: { type: ["integer", "null"], description: "FC media in bpm" },
-        hrMax: { type: ["integer", "null"], description: "FC massima in bpm" },
-        cadence: { type: ["integer", "null"], description: "Cadenza in passi/min" },
-        detectedApp: { type: "string", description: "App di provenienza riconosciuta" },
-        confidence: { type: "string", enum: ["high", "medium", "low"] },
-        hrPattern: {
-          type: ["string", "null"],
-          enum: ["stable", "creep", "spiky", "fading", null],
-          description: "Andamento qualitativo della FC nel grafico, null se non leggibile",
-        },
-        paceStrategy: {
-          type: ["string", "null"],
-          enum: ["even", "negative-split", "positive-split", "intervals", null],
-          description: "Strategia di passo letta dal grafico, null se non leggibile",
-        },
-        observations: {
+        images: {
           type: "array",
-          items: { type: "string" },
-          description: "0-3 osservazioni descrittive in italiano (mai cliniche)",
+          items: {
+            type: "object",
+            properties: {
+              imageIdx: { type: "integer" },
+              detectedApp: { type: ["string", "null"] },
+              blocks: {
+                type: "array",
+                items: {
+                  type: "string",
+                  enum: ["summary", "kmSplits", "segments", "hrChart", "paceChart", "hrZones", "other"],
+                },
+              },
+            },
+            required: ["imageIdx", "blocks"],
+            additionalProperties: false,
+          },
         },
       },
-      required: ["duration", "distance", "hrAvg", "hrMax", "cadence", "confidence"],
+      required: ["images"],
       additionalProperties: false,
     },
   },
 };
 
-type Extracted = {
-  duration: number | null;
-  distance: number | null;
-  hrAvg: number | null;
-  hrMax: number | null;
-  cadence: number | null;
-  detectedApp?: string;
-  confidence?: string;
-  hrPattern?: string | null;
-  paceStrategy?: string | null;
-  observations?: string[];
+// =====================================================================
+// STEP 2 — DEEP EXTRACTION PROMPT
+// =====================================================================
+const DEEP_SYSTEM_PROMPT = `<role>
+Sei un estrattore di dati profondo da screenshot di app fitness (Apple Salute, Apple Fitness, Strava, Garmin, Nike Run Club, Polar, Coros, ecc.).
+Estrai TUTTI i dati visibili in modo strettamente DESCRITTIVO. Mai inventare, mai stimare, mai arrotondare creativamente.
+</role>
+
+<multi_image_rules>
+L'utente carica fino a ${MAX_IMAGES} screenshot dello STESSO allenamento.
+Considera tutte le immagini come UN UNICO allenamento.
+Ti viene fornita una mappa "TRIAGE" con quale blocco è in quale immagine: usala per sapere dove cercare cosa.
+Per ogni metrica, scegli il valore dalla schermata in cui è più chiaro. Ignora duplicati.
+Se un campo non è leggibile in nessuna immagine, usa null. NON INVENTARE.
+</multi_image_rules>
+
+<conversion_rules>
+- duration: minuti totali in DECIMALE.
+  * "h:mm:ss" (es. "0:45:00") -> 45.0
+  * "1:05:30" -> 65.5
+  * "mm:ss" -> minuti.frazione
+- distance: chilometri in DECIMALE.
+  * Virgola = punto decimale ("7,59 km" -> 7.59)
+  * Metri -> km ("7590 m" -> 7.59)
+- hrAvg, hrMax: bpm interi.
+- cadence: passi/min INTERI E TOTALI. Apple "ppm" è già totale, non x2.
+- paceSecPerKm: secondi per km (intero). "5'56\\"/km" -> 356.
+- elevDelta: metri (positivo = salita, negativo = discesa).
+- durationSec di un segmento: secondi totali.
+</conversion_rules>
+
+<totals>
+Riepilogo principale: duration, distance, hrAvg, hrMax, cadence, calories, elevGain.
+Se mancano, null. hrMax può venire dall'asse Y in alto del grafico FC se non c'è un valore esplicito altrove.
+</totals>
+
+<km_splits>
+Se vedi una tabella "Parziali" / "Splits" / "Per km":
+una riga per ogni chilometro completato. Estrai TUTTI i km visibili.
+Per ogni km: paceSecPerKm, hrAvg, hrMax (se mostrato), elevDelta (se mostrato).
+Se l'ultimo km è frazionario (es. 7.59), includilo solo se l'app lo mostra come riga distinta.
+</km_splits>
+
+<segments>
+Solo se l'app mostra ESPLICITAMENTE lap / segmenti / "intervalli" / "ripetute".
+NON inferire segmenti dal grafico FC. Solo lap espliciti.
+Per ogni segmento: idx (1-based), label (testo originale o tradotto), type:
+- "warmup" (riscaldamento), "interval" (ripetuta veloce), "recovery" (recupero),
+- "cooldown" (defaticamento), "steady" (continuo a ritmo costante), "other".
+Inferisci type da label e contesto (durata + intensità). Se ambiguo: "other".
+durationSec, distanceKm, paceSecPerKm, hrAvg, hrMax: null se non visibili per quel segmento.
+</segments>
+
+<hr_series>
+Se è visibile un grafico FC nel tempo (curva FC vs tempo):
+ricostruisci ~${HR_SERIES_TARGET_POINTS} punti CAMPIONATI UNIFORMEMENTE leggendo la curva.
+Per ogni punto: tSec (secondi dall'inizio dell'allenamento), hr (bpm intero, leggi l'altezza della curva contro l'asse Y).
+samplingHintSec = intervallo medio tra i punti (durata totale / numero punti).
+Se non c'è grafico FC: hrSeries = null.
+NON inventare. Se la curva è troppo confusa, restituisci meno punti o null.
+</hr_series>
+
+<pace_series>
+Se è visibile un grafico del passo nel tempo (raro): stessa logica con paceSecPerKm.
+Altrimenti null.
+</pace_series>
+
+<hr_zones>
+Se l'app mostra il breakdown per zone (es. "Zona 1: 12%, Zona 2: 45%..."):
+una entry per zona presente. zone = numero (1..5), percent = percentuale tempo.
+Se non mostrato: array vuoto.
+</hr_zones>
+
+<visual_patterns>
+Sempre, se c'è un grafico FC o passo:
+- hrPattern: "stable" | "creep" | "spiky" | "fading" | null
+  * stable = curva piatta entro banda stretta
+  * creep = sale progressivamente a parità di passo
+  * spiky = picchi e valli marcati (ripetute)
+  * fading = scende verso la fine
+- paceStrategy: "even" | "negative-split" | "positive-split" | "intervals" | null
+- observations: 0-3 stringhe DESCRITTIVE in italiano. MAI cliniche.
+  OK: "FC sale dai 155 ai 170 negli ultimi 15'", "passo uniforme intorno ai 5'30/km".
+  VIETATO: "deriva patologica", "decompensazione", "anomalia".
+</visual_patterns>
+
+<output_rules>
+Restituisci TUTTO via tool call extract_deep_workout. Tutti i blocchi opzionali: se vuoti restituisci array vuoto o null secondo schema.
+NON inventare numeri. Meglio null che un valore inventato.
+</output_rules>`;
+
+// =====================================================================
+// DEEP EXTRACTION TOOL SCHEMA
+// =====================================================================
+const DEEP_TOOL = {
+  type: "function" as const,
+  function: {
+    name: "extract_deep_workout",
+    description: "Estrae il dataset completo dell'allenamento dagli screenshot.",
+    parameters: {
+      type: "object",
+      properties: {
+        totals: {
+          type: "object",
+          properties: {
+            duration: { type: ["number", "null"] },
+            distance: { type: ["number", "null"] },
+            hrAvg: { type: ["integer", "null"] },
+            hrMax: { type: ["integer", "null"] },
+            cadence: { type: ["integer", "null"] },
+            calories: { type: ["integer", "null"] },
+            elevGain: { type: ["integer", "null"] },
+          },
+          required: ["duration", "distance", "hrAvg", "hrMax", "cadence", "calories", "elevGain"],
+          additionalProperties: false,
+        },
+        kmSplits: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              km: { type: "integer" },
+              paceSecPerKm: { type: ["integer", "null"] },
+              hrAvg: { type: ["integer", "null"] },
+              hrMax: { type: ["integer", "null"] },
+              elevDelta: { type: ["integer", "null"] },
+            },
+            required: ["km", "paceSecPerKm", "hrAvg", "hrMax", "elevDelta"],
+            additionalProperties: false,
+          },
+        },
+        segments: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              idx: { type: "integer" },
+              label: { type: "string" },
+              type: {
+                type: "string",
+                enum: ["warmup", "interval", "recovery", "cooldown", "steady", "other"],
+              },
+              durationSec: { type: ["integer", "null"] },
+              distanceKm: { type: ["number", "null"] },
+              paceSecPerKm: { type: ["integer", "null"] },
+              hrAvg: { type: ["integer", "null"] },
+              hrMax: { type: ["integer", "null"] },
+            },
+            required: ["idx", "label", "type", "durationSec", "distanceKm", "paceSecPerKm", "hrAvg", "hrMax"],
+            additionalProperties: false,
+          },
+        },
+        hrSeries: {
+          type: ["object", "null"],
+          properties: {
+            samplingHintSec: { type: "integer" },
+            points: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  tSec: { type: "integer" },
+                  hr: { type: "integer" },
+                },
+                required: ["tSec", "hr"],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ["samplingHintSec", "points"],
+          additionalProperties: false,
+        },
+        paceSeries: {
+          type: ["object", "null"],
+          properties: {
+            points: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  tSec: { type: "integer" },
+                  paceSecPerKm: { type: "integer" },
+                },
+                required: ["tSec", "paceSecPerKm"],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ["points"],
+          additionalProperties: false,
+        },
+        hrZones: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              zone: { type: "integer" },
+              percent: { type: "integer" },
+            },
+            required: ["zone", "percent"],
+            additionalProperties: false,
+          },
+        },
+        visualPatterns: {
+          type: "object",
+          properties: {
+            hrPattern: { type: ["string", "null"], enum: ["stable", "creep", "spiky", "fading", null] },
+            paceStrategy: {
+              type: ["string", "null"],
+              enum: ["even", "negative-split", "positive-split", "intervals", null],
+            },
+            observations: { type: "array", items: { type: "string" } },
+          },
+          required: ["hrPattern", "paceStrategy", "observations"],
+          additionalProperties: false,
+        },
+        detectedApp: { type: ["string", "null"] },
+        confidence: { type: "string", enum: ["high", "medium", "low"] },
+      },
+      required: [
+        "totals",
+        "kmSplits",
+        "segments",
+        "hrSeries",
+        "paceSeries",
+        "hrZones",
+        "visualPatterns",
+        "confidence",
+      ],
+      additionalProperties: false,
+    },
+  },
 };
 
-function countNumericFields(e: Extracted): number {
-  return ["duration", "distance", "hrAvg", "hrMax", "cadence"].reduce((acc, k) => {
-    const v = (e as any)[k];
-    return acc + (typeof v === "number" && !Number.isNaN(v) ? 1 : 0);
-  }, 0);
-}
+// =====================================================================
+// TYPES
+// =====================================================================
+type TriageResult = {
+  images: { imageIdx: number; detectedApp?: string | null; blocks: string[] }[];
+};
 
+type DeepExtraction = {
+  totals: {
+    duration: number | null;
+    distance: number | null;
+    hrAvg: number | null;
+    hrMax: number | null;
+    cadence: number | null;
+    calories: number | null;
+    elevGain: number | null;
+  };
+  kmSplits: {
+    km: number;
+    paceSecPerKm: number | null;
+    hrAvg: number | null;
+    hrMax: number | null;
+    elevDelta: number | null;
+  }[];
+  segments: {
+    idx: number;
+    label: string;
+    type: string;
+    durationSec: number | null;
+    distanceKm: number | null;
+    paceSecPerKm: number | null;
+    hrAvg: number | null;
+    hrMax: number | null;
+  }[];
+  hrSeries: { samplingHintSec: number; points: { tSec: number; hr: number }[] } | null;
+  paceSeries: { points: { tSec: number; paceSecPerKm: number }[] } | null;
+  hrZones: { zone: number; percent: number }[];
+  visualPatterns: {
+    hrPattern: string | null;
+    paceStrategy: string | null;
+    observations: string[];
+  };
+  detectedApp?: string | null;
+  confidence: string;
+};
+
+// =====================================================================
+// AI GATEWAY HELPER
+// =====================================================================
 async function callGateway(
   apiKey: string,
   model: string,
+  systemPrompt: string,
   userPrompt: string,
   signedUrls: string[],
-): Promise<{ ok: true; extracted: Extracted; raw: unknown } | { ok: false; status: number; errText: string }> {
+  tool: typeof TRIAGE_TOOL,
+): Promise<{ ok: true; parsed: any; raw: unknown } | { ok: false; status: number; errText: string }> {
   const userContent: any[] = [{ type: "text", text: userPrompt }];
   for (const url of signedUrls) {
     userContent.push({ type: "image_url", image_url: { url } });
@@ -174,11 +367,11 @@ async function callGateway(
     body: JSON.stringify({
       model,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt },
         { role: "user", content: userContent },
       ],
-      tools: [TOOL_SCHEMA],
-      tool_choice: { type: "function", function: { name: "extract_workout_metrics" } },
+      tools: [tool],
+      tool_choice: { type: "function", function: { name: tool.function.name } },
     }),
   });
 
@@ -194,26 +387,96 @@ async function callGateway(
   }
 
   try {
-    const extracted = JSON.parse(toolCall.function.arguments) as Extracted;
-    return { ok: true, extracted, raw: aiData };
+    const parsed = JSON.parse(toolCall.function.arguments);
+    return { ok: true, parsed, raw: aiData };
   } catch (e) {
     return { ok: false, status: 500, errText: `parse_error: ${String(e)}` };
   }
 }
 
+// =====================================================================
+// VALIDATION (deterministic, no AI)
+// =====================================================================
+function validateExtraction(ex: DeepExtraction) {
+  const notes: string[] = [];
+  let durationConsistency: "ok" | "mismatch" | "n/a" = "n/a";
+  let distanceConsistency: "ok" | "mismatch" | "n/a" = "n/a";
+  let hrAvgConsistency: "ok" | "mismatch" | "n/a" = "n/a";
+
+  const totalDurMin = ex.totals.duration;
+  const totalDistKm = ex.totals.distance;
+  const totalHrAvg = ex.totals.hrAvg;
+
+  // Duration: sum segments ≈ total
+  if (totalDurMin != null && ex.segments.length > 0) {
+    const segSumMin = ex.segments.reduce((a, s) => a + (s.durationSec ?? 0), 0) / 60;
+    if (segSumMin > 0) {
+      const ratio = segSumMin / totalDurMin;
+      if (ratio < 0.85 || ratio > 1.15) {
+        durationConsistency = "mismatch";
+        notes.push(`Somma durate segmenti (${segSumMin.toFixed(1)}m) ≠ totale (${totalDurMin}m)`);
+      } else {
+        durationConsistency = "ok";
+      }
+    }
+  }
+
+  // Distance: sum km splits ≈ total
+  if (totalDistKm != null && ex.kmSplits.length > 0) {
+    const splitDistKm = ex.kmSplits.length; // each split is 1 km nominally
+    const ratio = splitDistKm / totalDistKm;
+    if (ratio < 0.85 || ratio > 1.15) {
+      distanceConsistency = "mismatch";
+      notes.push(`# split (${splitDistKm}) non coerente con distanza totale (${totalDistKm}km)`);
+    } else {
+      distanceConsistency = "ok";
+    }
+  }
+
+  // HR avg: weighted mean of segments ≈ total
+  if (totalHrAvg != null && ex.segments.length > 0) {
+    const valid = ex.segments.filter((s) => s.hrAvg != null && (s.durationSec ?? 0) > 0);
+    if (valid.length > 0) {
+      const totalSec = valid.reduce((a, s) => a + (s.durationSec ?? 0), 0);
+      const weighted = valid.reduce((a, s) => a + (s.hrAvg as number) * (s.durationSec ?? 0), 0) / totalSec;
+      const diff = Math.abs(weighted - totalHrAvg);
+      if (diff > 8) {
+        hrAvgConsistency = "mismatch";
+        notes.push(`FC media pesata segmenti (${weighted.toFixed(0)}) ≠ FC media dichiarata (${totalHrAvg})`);
+      } else {
+        hrAvgConsistency = "ok";
+      }
+    }
+  }
+
+  return { durationConsistency, distanceConsistency, hrAvgConsistency, notes };
+}
+
+// =====================================================================
+// LANGUAGE GUARDRAIL on observations
+// =====================================================================
+function sanitizeObservations(obs: string[]): string[] {
+  const banned = ["patolog", "diagnos", "decompens", "deriva cardiaca patologica", "anomalia"];
+  return obs
+    .filter((o) => typeof o === "string" && o.length > 0 && o.length < 200)
+    .filter((o) => !banned.some((b) => o.toLowerCase().includes(b)))
+    .slice(0, 3);
+}
+
+// =====================================================================
+// HTTP HANDLER
+// =====================================================================
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return json({ error: "Unauthorized" }, 401);
-    }
+    if (!authHeader?.startsWith("Bearer ")) return json({ error: "Unauthorized" }, 401);
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
+      { global: { headers: { Authorization: authHeader } } },
     );
 
     const { data: userData, error: userErr } = await supabase.auth.getUser();
@@ -227,18 +490,15 @@ Deno.serve(async (req) => {
       ? imagePaths
       : (typeof imagePath === "string" ? [imagePath] : []);
 
-    if (paths.length === 0) {
-      return json({ error: "imagePath or imagePaths required" }, 400);
-    }
-    if (paths.length > MAX_IMAGES) {
-      return json({ error: `Massimo ${MAX_IMAGES} immagini` }, 400);
-    }
+    if (paths.length === 0) return json({ error: "imagePath or imagePaths required" }, 400);
+    if (paths.length > MAX_IMAGES) return json({ error: `Massimo ${MAX_IMAGES} immagini` }, 400);
 
+    // Sign URLs (longer TTL because we make 2 sequential AI calls)
     const signedUrls: string[] = [];
     for (const p of paths) {
       const { data: signed, error: signedErr } = await supabase.storage
         .from("workout-screenshots")
-        .createSignedUrl(p, 60);
+        .createSignedUrl(p, 180);
       if (signedErr || !signed?.signedUrl) {
         console.error("Signed URL error:", signedErr);
         return json({ error: "Image not accessible" }, 400);
@@ -249,70 +509,139 @@ Deno.serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return json({ error: "AI not configured" }, 500);
 
-    const userPrompt = `Estrai i dati di questo allenamento (tipo: ${sessionType || "freeform"}) leggendo TUTTE le ${signedUrls.length} immagini come un unico allenamento. Solo numeri visibili, null per i campi mancanti. Ricorda: la virgola è separatore decimale (7,59 km = 7.59), il formato durata "0:45:00" significa 45 minuti, "ppm" Apple è già cadenza totale. Se un grafico FC/pace è visibile in una delle immagini, popola anche hrPattern, paceStrategy e observations in modo descrittivo (mai clinico). Per hrMax leggi anche il numero in alto sull'asse Y del grafico FC se non c'è un valore esplicito.`;
+    // ==========================================
+    // STEP 1: TRIAGE
+    // ==========================================
+    const triagePrompt = `Classifica questi ${signedUrls.length} screenshot dell'allenamento (tipo dichiarato: ${sessionType || "freeform"}). Indica per ciascuna immagine quali blocchi contiene.`;
 
-    // === Primo tentativo: gemini-2.5-flash ===
-    let modelUsed = PRIMARY_MODEL;
-    let retried = false;
-    let attempt = await callGateway(LOVABLE_API_KEY, PRIMARY_MODEL, userPrompt, signedUrls);
+    const triageRes = await callGateway(
+      LOVABLE_API_KEY,
+      TRIAGE_MODEL,
+      TRIAGE_SYSTEM_PROMPT,
+      triagePrompt,
+      signedUrls,
+      TRIAGE_TOOL,
+    );
 
-    if (!attempt.ok) {
-      // errori HTTP gateway: forward dei codici utili (rate/credits) senza retry
-      if (attempt.status === 429) {
-        void logRequest(supabase, userId, modelUsed, userPrompt, signedUrls.length, null, "error", `429: ${attempt.errText.slice(0, 300)}`);
+    let triageMap: TriageResult = { images: [] };
+    let detectedApp: string | null = null;
+
+    if (triageRes.ok) {
+      triageMap = triageRes.parsed as TriageResult;
+      detectedApp = triageMap.images.find((i) => i.detectedApp)?.detectedApp ?? null;
+    } else {
+      // Triage non bloccante: continuiamo senza hint
+      if (triageRes.status === 429) {
         return json({ error: "rate_limit" }, 429);
       }
-      if (attempt.status === 402) {
-        void logRequest(supabase, userId, modelUsed, userPrompt, signedUrls.length, null, "error", `402: ${attempt.errText.slice(0, 300)}`);
+      if (triageRes.status === 402) {
         return json({ error: "credits_exhausted" }, 402);
       }
-      console.error("Primary model error:", attempt.status, attempt.errText);
-      void logRequest(supabase, userId, modelUsed, userPrompt, signedUrls.length, null, "error", `${attempt.status}: ${attempt.errText.slice(0, 300)}`);
+      console.warn("Triage failed, continuing without hints:", triageRes.status, triageRes.errText.slice(0, 200));
+    }
+
+    // ==========================================
+    // STEP 2: DEEP EXTRACTION (gemini-2.5-pro)
+    // ==========================================
+    const triageHint = triageMap.images.length > 0
+      ? "MAPPA TRIAGE (quale blocco è in quale immagine):\n" +
+        triageMap.images
+          .map((i) => `- Immagine #${i.imageIdx + 1}: ${i.blocks.join(", ") || "(nulla di rilevante)"}`)
+          .join("\n")
+      : "MAPPA TRIAGE: non disponibile, ispeziona tutte le immagini.";
+
+    const deepPrompt = `Estrai TUTTI i dati di questo allenamento (tipo: ${sessionType || "freeform"}) leggendo TUTTE le ${signedUrls.length} immagini come UN UNICO allenamento.
+
+${triageHint}
+
+Ricorda:
+- Virgola = separatore decimale (7,59 km = 7.59).
+- "0:45:00" = 45 minuti.
+- "ppm" Apple è cadenza totale (non x2).
+- Per hrMax leggi anche l'asse Y in alto del grafico FC.
+- Per kmSplits: estrai TUTTI i km visibili nella tabella parziali.
+- Per segments: SOLO se l'app mostra lap espliciti. Mai inferirli dal grafico FC.
+- Per hrSeries: ~${HR_SERIES_TARGET_POINTS} punti uniformi dal grafico FC, leggendo la curva. Se assente, hrSeries = null.
+- Mai inventare. Meglio null che un numero stimato.`;
+
+    const deepRes = await callGateway(
+      LOVABLE_API_KEY,
+      DEEP_MODEL,
+      DEEP_SYSTEM_PROMPT,
+      deepPrompt,
+      signedUrls,
+      DEEP_TOOL,
+    );
+
+    if (!deepRes.ok) {
+      if (deepRes.status === 429) return json({ error: "rate_limit" }, 429);
+      if (deepRes.status === 402) return json({ error: "credits_exhausted" }, 402);
+      console.error("Deep extraction error:", deepRes.status, deepRes.errText);
+      void logRequest(supabase, userId, DEEP_MODEL, deepPrompt, signedUrls.length, null, "error", `${deepRes.status}: ${deepRes.errText.slice(0, 300)}`);
       return json({ error: "AI gateway error" }, 500);
     }
 
-    let extracted = attempt.extracted;
-    let filled = countNumericFields(extracted);
+    const extracted = deepRes.parsed as DeepExtraction;
 
-    // === Retry su pro se troppo pochi campi ===
-    if (filled < MIN_FIELDS_FOR_SUCCESS) {
-      console.log(`Primary returned only ${filled} fields, retrying with ${FALLBACK_MODEL}`);
-      const retry = await callGateway(LOVABLE_API_KEY, FALLBACK_MODEL, userPrompt, signedUrls);
-      retried = true;
-      if (retry.ok) {
-        const retryFilled = countNumericFields(retry.extracted);
-        if (retryFilled > filled) {
-          extracted = retry.extracted;
-          filled = retryFilled;
-          modelUsed = FALLBACK_MODEL;
-        }
-      } else if (retry.status === 429 || retry.status === 402) {
-        // se il fallback va in rate limit/credit non blocchiamo: teniamo il primo risultato
-        console.warn(`Fallback ${FALLBACK_MODEL} rate/credit limited (${retry.status}), keeping primary result`);
-      } else {
-        console.warn(`Fallback ${FALLBACK_MODEL} failed: ${retry.status} ${retry.errText.slice(0, 200)}`);
-      }
-    }
-
-    // Sanity check sul linguaggio delle observations
-    if (Array.isArray(extracted.observations)) {
-      const banned = ["patolog", "diagnos", "decompens", "deriva cardiaca patologica", "anomalia"];
-      extracted.observations = extracted.observations
-        .filter((o: any) => typeof o === "string" && o.length > 0 && o.length < 200)
-        .filter((o: string) => !banned.some((b) => o.toLowerCase().includes(b)))
-        .slice(0, 3);
+    // Sanitize observations
+    if (Array.isArray(extracted.visualPatterns?.observations)) {
+      extracted.visualPatterns.observations = sanitizeObservations(extracted.visualPatterns.observations);
     } else {
-      extracted.observations = [];
+      extracted.visualPatterns = {
+        hrPattern: extracted.visualPatterns?.hrPattern ?? null,
+        paceStrategy: extracted.visualPatterns?.paceStrategy ?? null,
+        observations: [],
+      };
     }
 
-    void logRequest(supabase, userId, modelUsed, userPrompt, signedUrls.length, extracted as Record<string, unknown>, "success", null);
+    // Cap hrSeries length defensively
+    if (extracted.hrSeries?.points && extracted.hrSeries.points.length > 120) {
+      extracted.hrSeries.points = extracted.hrSeries.points.slice(0, 120);
+    }
+
+    // Validation
+    const validation = validateExtraction(extracted);
+
+    // Compose the final ExtractedWorkout
+    const result = {
+      totals: extracted.totals,
+      kmSplits: extracted.kmSplits ?? [],
+      segments: extracted.segments ?? [],
+      hrSeries: extracted.hrSeries ?? null,
+      paceSeries: extracted.paceSeries ?? null,
+      hrZones: extracted.hrZones ?? [],
+      visualPatterns: extracted.visualPatterns,
+      detectedApp: extracted.detectedApp ?? detectedApp ?? null,
+      confidence: (extracted.confidence ?? "medium") as "high" | "medium" | "low",
+      sourceImagesUsed: signedUrls.length,
+      validation,
+    };
+
+    void logRequest(supabase, userId, DEEP_MODEL, deepPrompt, signedUrls.length, result as Record<string, unknown>, "success", null);
+
+    // Backwards-compat: also expose a flat "extracted" with the basic 5 fields,
+    // so the existing client form-fill logic keeps working.
+    const extractedFlat = {
+      duration: result.totals.duration,
+      distance: result.totals.distance,
+      hrAvg: result.totals.hrAvg,
+      hrMax: result.totals.hrMax,
+      cadence: result.totals.cadence,
+      detectedApp: result.detectedApp,
+      confidence: result.confidence,
+      hrPattern: result.visualPatterns.hrPattern,
+      paceStrategy: result.visualPatterns.paceStrategy,
+      observations: result.visualPatterns.observations,
+    };
 
     return json({
-      extracted,
+      extracted: extractedFlat,
+      extractedWorkout: result,
       promptVersion: PROMPT_VERSION,
-      model: modelUsed,
+      model: DEEP_MODEL,
+      triageModel: TRIAGE_MODEL,
       imagesUsed: signedUrls.length,
-      retried,
+      sourceImagePaths: paths,
     });
   } catch (e) {
     console.error("extract-workout-data error:", e);
@@ -337,7 +666,7 @@ async function logRequest(
       model,
       prompt_version: PROMPT_VERSION,
       log_id: null,
-      system_prompt: SYSTEM_PROMPT,
+      system_prompt: DEEP_SYSTEM_PROMPT,
       user_prompt: `${userPrompt} [images: ${imageCount}]`,
       response,
       status,

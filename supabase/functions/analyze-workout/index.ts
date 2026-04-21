@@ -6,49 +6,94 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// Cap. 4.2 — System prompt: tono "coach-amico" con linguaggio descrittivo (compromesso A/B)
-const SYSTEM_PROMPT = `Sei "PACE Coach", un amico esperto di corsa che guarda i dati del tuo amico runner e li commenta da pari. NON sei un medico, NON sei un fisioterapista, NON sei un personal trainer certificato. Sei l'amico che corre da anni e legge i numeri insieme a lui — non li prescrive.
+// Bumpa questa stringa ogni volta che cambi il prompt o lo schema del tool.
+// Convenzione: vN-YYYY-MM-DD[-suffix]
+const PROMPT_VERSION = "v2-2025-04-21-xml";
+const MODEL = "google/gemini-3-flash-preview";
 
-POSIZIONAMENTO (CRITICO):
-- Sei un DIARIO che osserva, non un coach che impone. La tua voce è descrittiva, mai prescrittiva.
-- Non usare MAI: "devi", "devi assolutamente", "ti consiglio di", "ti prescrivo", "smetti di", "non puoi". Usa: "potresti", "una possibilità è", "molti runner trovano utile", "i numeri suggeriscono", "guardando i dati emerge che".
-- Quando proponi qualcosa, presentala come opzione che il runner può valutare insieme al proprio corpo, non come istruzione.
+// ------------------------------------------------------------------
+// SYSTEM PROMPT — sezioni con tag XML, una responsabilità per blocco
+// ------------------------------------------------------------------
+const SYSTEM_PROMPT = `<role>
+Sei "PACE Coach", un amico esperto di corsa che guarda i dati del tuo amico runner e li commenta da pari.
+NON sei un medico, NON sei un fisioterapista, NON sei un personal trainer certificato.
+Sei l'amico che corre da anni e legge i numeri insieme a lui — non li prescrive.
+Sei un DIARIO che osserva, non un coach che impone. La tua voce è descrittiva, mai prescrittiva.
+</role>
 
-COME PARLI:
+<tone>
 - Dai del "tu", caldo ma misurato. Niente paroloni clinici, niente toni da guru.
 - Frasi brevi, concrete. Come al bar dopo la corsa.
 - Puoi usare "ehi", "guarda", "ottimo", "occhio che...", emoji con parsimonia (max 1-2 per campo).
-- Spiega il "perché" dei numeri in modo semplice ma senza mai presentarti come autorità medica.
+- Spiega il "perché" dei numeri in modo semplice ma senza presentarti come autorità medica.
+</tone>
 
-COSA FAI:
-- Leggi i numeri già calcolati (pace, %FC, zone, stato di forma). Non calcoli mai tu.
-- Commenti com'è andata e proponi (non prescrivi) cosa potrebbe avere senso al prossimo allenamento.
-- Sei concreto e di supporto, mai giudicante, mai paternalista.
+<language_rules>
+MAI usare: "devi", "devi assolutamente", "ti consiglio di", "ti prescrivo", "smetti di", "non puoi".
+USA SEMPRE: "potresti", "una possibilità è", "molti runner trovano utile", "i numeri suggeriscono", "guardando i dati emerge che".
+Quando proponi qualcosa, presentala come opzione che il runner può valutare insieme al proprio corpo, non come istruzione.
+</language_rules>
 
-VIETATO:
+<never_do>
 - Diagnosi mediche (sindromi, patologie, infortuni clinici).
 - Prescrivere farmaci, terapie, riposo "medico".
 - Frasi tipo "soffri di", "hai una patologia", "devi assolutamente smettere".
-- Inventare numeri: usa SOLO quelli nel prompt.
+- Inventare numeri: usa SOLO quelli forniti nel prompt utente.
+- Calcolare nulla: i numeri arrivano già pronti.
+- Citare CTL/ATL/TSB: traduci sempre in "forma", "fatica", "freschezza".
+</never_do>
 
-DE-ESCALATION:
-Se nelle note l'utente parla di dolore, malessere, sintomi strani: NON interpretarli. Digli da amico di sentire un medico, senza fare ipotesi.
+<safety>
+Se nelle note l'utente parla di dolore, malessere, sintomi strani: NON interpretarli.
+Digli da amico di sentire un medico, senza fare ipotesi cliniche.
+In sessionHighlight, se ci sono parole su dolore/malessere, invita SOLO a sentire un medico.
+</safety>
 
-OUTPUT — 3 CAMPI, tono amico-diario:
-1. **technicalReading** (2-4 frasi): "Com'è andata davvero". Leggi cuore + ritmo + intenzione + (se disponibile) stato di forma in modo umano. Es: "Il cuore è salito parecchio per essere un lento — sei stato all'80% del max. Probabilmente hai spinto più di quanto pensassi, o eri un po' stanco di base."
-2. **sessionHighlight** (2-4 frasi): "Cosa porti a casa". Cosa ha funzionato o cosa puoi sistemare, considerando note e RPE. Tono incoraggiante, mai giudicante.
-3. **nextMove** (3-5 frasi, IMPORTANTE): "Cosa potresti fare al prossimo allenamento". DEVI ancorarti alla SESSIONE PIANIFICATA fornita nel prompt (campo "Prossima sessione del piano"). NON inventare un allenamento diverso. Conferma quella sessione, eventualmente proponendo (non imponendo) piccoli aggiustamenti basati su come è andata oggi e sullo stato di forma. Esempio: "Il prossimo del piano è [NOME, durata]. Visto che oggi hai spinto e la forma è 'carico alto', una possibilità è farlo sull'intensità più bassa del range, FC sotto X, e se ti senti pesante alleggerire la parte centrale di 5'." Se NON c'è una prossima sessione pianificata (piano completato), allora puoi suggerire liberamente. Se lo "Stato di forma" dice "Affaticato" o "Carico alto", invita SEMPRE ad alleggerire come opzione. Non citare mai CTL/ATL/TSB — traducili sempre in "forma", "fatica", "freschezza".
+<output_rules>
+Tre campi testuali + planAdjustment, tutti via tool call.
 
-PLAN ADJUSTMENT (osservazione, non consiglio):
-Se lo storico dice che il target gara è chiaramente fuori scala (off di oltre 3 min, in più o in meno) E la confidenza della stima è "medium" o "high", popola planAdjustment con shouldAdjust=true, nuova stima onesta, e un messaggio di OSSERVAZIONE da amico ("Guarda, dai numeri di queste settimane, 50 min sui 10K sembra tirato — la banda dei dati dice ~55. Se vuoi puoi aggiornare il target, oppure tenere quello attuale come stretch."). NON dire mai "devi cambiare il target". Sempre formula: "se vuoi puoi", "una possibilità è", "i dati suggeriscono". Se confidenza è "low" o ci sono dati implausibili → shouldAdjust=false sempre.
+1. **technicalReading** (2-4 frasi): "Com'è andata davvero".
+   Leggi cuore + ritmo + intenzione + stato di forma in modo umano.
+   Esempio: "Il cuore è salito parecchio per essere un lento — sei stato all'80% del max. Probabilmente hai spinto più di quanto pensassi, o eri un po' stanco di base."
+   Se nel prompt arriva un blocco <visual_patterns>, integra quelle osservazioni in modo descrittivo
+   (es. "si vede che la frequenza è salita progressivamente", "il ritmo è stato uniforme", "hai chiuso più forte di come hai aperto").
+   Mai linguaggio clinico tipo "deriva cardiaca patologica" o "decompensazione".
 
-DATI IMPLAUSIBILI (CRITICO):
-Se il prompt segnala "DATI IMPLAUSIBILI" con severity=impossible (es: passo sotto 2'30"/km, distanza > 80km, durata > 10h), NON celebrare la performance, NON dire "sei andato come un treno", NON usare quei numeri per la lettura tecnica. Invece:
-- in technicalReading: di' chiaramente da amico che i numeri non tornano ("Ehi, qui c'è qualcosa che non quadra: 50km in 35 min vorrebbe dire correre più veloce del record mondiale, ripetuto per un'ora. Probabile errore di inserimento — magari hai messo i metri al posto dei km, o invertito durata e distanza."). Spiega cosa potrebbe essere successo.
-- in sessionHighlight: invita a ricontrollare e re-inserire la sessione corretta.
-- in nextMove: dì che non puoi commentare finché i dati non sono attendibili, e suggerisci di correggere il log prima del prossimo allenamento.
-- planAdjustment.shouldAdjust = false sempre quando ci sono dati impossibili.
-Se invece severity=warn (numeri strani ma non impossibili), commentali con cautela ("FC media bassa per quel passo, hai una fascia o uno smartwatch nuovo? Verifica la calibrazione").`;
+2. **sessionHighlight** (2-4 frasi): "Cosa porti a casa".
+   Cosa ha funzionato o cosa puoi sistemare, considerando note e RPE. Tono incoraggiante, mai giudicante.
+
+3. **nextMove** (3-5 frasi, IMPORTANTE):
+   DEVI ancorarti alla SESSIONE PIANIFICATA fornita nel prompt utente (campo "Prossima sessione del piano").
+   NON inventare un allenamento diverso. Conferma quella sessione, eventualmente proponendo (non imponendo)
+   piccoli aggiustamenti basati su come è andata oggi e sullo stato di forma.
+   Se NON c'è una prossima sessione pianificata (piano completato), allora puoi suggerire liberamente.
+   Se lo "Stato di forma" dice "Affaticato" o "Carico alto", invita SEMPRE ad alleggerire come opzione.
+</output_rules>
+
+<plan_adjustment>
+Se lo storico dice che il target gara è chiaramente fuori scala (off di oltre 3 min, in più o in meno)
+E la confidenza della stima è "medium" o "high", popola planAdjustment con:
+- shouldAdjust=true
+- newTargetEstimate=nuova stima onesta (un numero)
+- message=osservazione da amico ("Guarda, dai numeri di queste settimane, 50' sui 10K sembra tirato — la banda dice ~55. Se vuoi puoi aggiornare il target, oppure tenerlo come stretch.")
+
+Mai "devi cambiare il target". Sempre formula: "se vuoi puoi", "una possibilità è", "i dati suggeriscono".
+Se confidenza è "low" OPPURE ci sono dati implausibili → shouldAdjust=false sempre.
+</plan_adjustment>
+
+<implausible_data>
+Se nel prompt utente arriva "DATI IMPLAUSIBILI" con severity=impossible
+(es: passo sotto 2'30"/km, distanza > 80km, durata > 10h):
+- NON celebrare la performance, NON dire "sei andato come un treno".
+- NON usare quei numeri per la lettura.
+- in technicalReading: di' chiaramente da amico che i numeri non tornano e ipotizza l'errore di inserimento.
+- in sessionHighlight: invita a re-inserire la sessione corretta.
+- in nextMove: di' che non puoi commentare finché i dati non sono attendibili.
+- planAdjustment.shouldAdjust=false sempre.
+
+Se severity=warn (numeri strani ma non impossibili), commentali con cautela
+("FC media bassa per quel passo, hai una fascia o uno smartwatch nuovo? Verifica la calibrazione").
+</implausible_data>`;
 
 const FORBIDDEN_WORDS = [
   "sindrome",
@@ -61,6 +106,8 @@ const FORBIDDEN_WORDS = [
   "soffri di",
   "soffri della",
   "hai una malattia",
+  "deriva cardiaca patologica",
+  "decompensazione",
 ];
 
 Deno.serve(async (req) => {
@@ -78,16 +125,18 @@ Deno.serve(async (req) => {
 
     const { data: userData, error: userErr } = await supabase.auth.getUser();
     if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
+    const userId = userData.user.id;
 
     const body = await req.json();
-    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock } = body || {};
+    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns } = body || {};
     if (!computed || !log || !profile) return json({ error: "Invalid payload" }, 400);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return json({ error: "AI not configured" }, 500);
 
-    // Cap. 3.2 — Sandwich: passa numeri pre-calcolati
-    const userPrompt = buildUserPrompt({ computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock });
+    const userPrompt = buildUserPrompt({
+      computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns,
+    });
 
     const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -96,7 +145,7 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: MODEL,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
@@ -112,15 +161,15 @@ Deno.serve(async (req) => {
                 properties: {
                   technicalReading: {
                     type: "string",
-                    description: "Com'è andata davvero, da amico-coach. Incrocia cuore/ritmo/intenzione in modo umano. 2-4 frasi.",
+                    description: "Com'è andata davvero, da amico-coach. 2-4 frasi.",
                   },
                   sessionHighlight: {
                     type: "string",
-                    description: "Cosa porti a casa: cosa ha funzionato o cosa sistemare, considerando note e RPE. Tono incoraggiante. 2-4 frasi.",
+                    description: "Cosa porti a casa: cosa ha funzionato o cosa sistemare. 2-4 frasi.",
                   },
                   nextMove: {
                     type: "string",
-                    description: "Cosa fare al PROSSIMO allenamento: tipo, ritmo indicativo, FC, durata. Concreto e collegato alla sessione di oggi. 3-5 frasi.",
+                    description: "Cosa fare al PROSSIMO allenamento, ancorato alla sessione del piano. 3-5 frasi.",
                   },
                   planAdjustment: {
                     type: "object",
@@ -148,22 +197,62 @@ Deno.serve(async (req) => {
     });
 
     if (!aiResp.ok) {
+      const errText = await aiResp.text().catch(() => "");
+      // Best-effort logging dell'errore
+      void supabase.from("ai_requests").insert({
+        user_id: userId,
+        function_name: "analyze-workout",
+        model: MODEL,
+        prompt_version: PROMPT_VERSION,
+        log_id: log?.id ?? null,
+        system_prompt: SYSTEM_PROMPT,
+        user_prompt: userPrompt,
+        response: null,
+        status: "error",
+        error_message: `${aiResp.status}: ${errText.slice(0, 500)}`,
+      });
       if (aiResp.status === 429) return json({ error: "rate_limit" }, 429);
       if (aiResp.status === 402) return json({ error: "credits_exhausted" }, 402);
-      const t = await aiResp.text();
-      console.error("AI gateway error:", aiResp.status, t);
+      console.error("AI gateway error:", aiResp.status, errText);
       return json({ error: "AI gateway error" }, 500);
     }
 
     const aiData = await aiResp.json();
     const toolCall = aiData?.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall?.function?.arguments) return json({ error: "No structured output" }, 500);
+    if (!toolCall?.function?.arguments) {
+      void supabase.from("ai_requests").insert({
+        user_id: userId,
+        function_name: "analyze-workout",
+        model: MODEL,
+        prompt_version: PROMPT_VERSION,
+        log_id: log?.id ?? null,
+        system_prompt: SYSTEM_PROMPT,
+        user_prompt: userPrompt,
+        response: aiData ?? null,
+        status: "error",
+        error_message: "No structured output",
+      });
+      return json({ error: "No structured output" }, 500);
+    }
 
     const parsed = JSON.parse(toolCall.function.arguments);
-
-    // Cap. 4.3 — Guardrail post-API
     const sanitized = sanitizeOutput(parsed);
-    return json({ analysis: sanitized });
+
+    // Log della richiesta riuscita (best-effort, non blocca la risposta)
+    void supabase.from("ai_requests").insert({
+      user_id: userId,
+      function_name: "analyze-workout",
+      model: MODEL,
+      prompt_version: PROMPT_VERSION,
+      log_id: log?.id ?? null,
+      system_prompt: SYSTEM_PROMPT,
+      user_prompt: userPrompt,
+      response: sanitized as unknown as Record<string, unknown>,
+      status: "success",
+      error_message: null,
+    });
+
+    return json({ analysis: sanitized, promptVersion: PROMPT_VERSION, model: MODEL });
   } catch (e) {
     console.error("analyze-workout error:", e);
     return json({ error: e instanceof Error ? e.message : "Unknown error" }, 500);
@@ -171,7 +260,7 @@ Deno.serve(async (req) => {
 });
 
 function buildUserPrompt(args: any): string {
-  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock } = args;
+  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns } = args;
   const recent = (recentSameType || [])
     .map(
       (r: any, i: number) =>
@@ -206,6 +295,22 @@ ${(nextPlanned.blocks || []).map((b: string, i: number) => `  ${i + 1}. ${b}`).j
 
   const raceDist = profile.raceDistance && profile.raceDistance > 0 ? profile.raceDistance : 10;
   const raceDistLabel = Number.isInteger(raceDist) ? `${raceDist}K` : `${Math.round(raceDist)}K`;
+
+  // <visual_patterns> — opzionale, arriva da extract-workout-data se l'utente ha caricato uno screenshot
+  const vp = visualPatterns;
+  const visualBlock = vp && (vp.hrPattern || vp.paceStrategy || (vp.observations && vp.observations.length > 0))
+    ? `<visual_patterns>
+Pattern qualitativi letti dal grafico dello screenshot (se utili, integrali in technicalReading in modo descrittivo):
+- Andamento FC: ${vp.hrPattern ?? "n/d"} (stable=stabile, creep=in salita progressiva, spiky=a picchi, fading=in calo)
+- Strategia di passo: ${vp.paceStrategy ?? "n/d"} (even=uniforme, negative-split=chiusura più veloce, positive-split=apertura più veloce, intervals=ripetute)
+- Osservazioni: ${(vp.observations && vp.observations.length > 0) ? vp.observations.map((o: string) => `"${o}"`).join("; ") : "(nessuna)"}
+
+REGOLE PER USARE QUESTI DATI:
+- Linguaggio descrittivo, mai clinico ("si osserva", "il grafico mostra", "sei partito più forte e poi hai stabilizzato").
+- Mai termini come "deriva patologica", "decompensazione", "anomalia cardiaca".
+- Se hrPattern è "spiky" o "fading", non diagnosticare: descrivi soltanto.
+</visual_patterns>`
+    : "";
 
   return `DATI PRE-CALCOLATI (NON RICALCOLARE):
 
@@ -250,14 +355,17 @@ ${nextBlock}
 
 ${loadStateBlock}
 
-ISTRUZIONI:
-1. **PRIMA DI TUTTO**: controlla il blocco "Plausibilità dati". Se status è "DATI IMPLAUSIBILI", segui le regole della sezione "DATI IMPLAUSIBILI" del system prompt: NON celebrare numeri impossibili, segnala l'errore da amico, chiedi di re-inserire. Ignora le altre istruzioni di lettura performance e metti planAdjustment.shouldAdjust=false.
-2. Altrimenti, scrivi technicalReading, sessionHighlight, nextMove con tono da amico-diario (vedi system prompt). Niente paroloni, niente "devi".
-3. **Tieni conto dello "Stato di forma"** (blocco qui sopra) quando commenti e proponi il prossimo passo. Se è "Affaticato", "Carico alto" o "Sovraccarico", in nextMove proponi SEMPRE come opzione di alleggerire (durata ridotta, intensità sul lato basso del range, eventuale giorno di riposo extra). Se è "Pronto" o "Fresco/scarico", puoi confermare la sessione pianificata senza modifiche. Se è "non disponibile" (pochi dati), NON inventare numeri di forma/fatica — di' semplicemente che è ancora presto per leggere lo stato di forma. Non citare mai CTL/ATL/TSB: traduci sempre in "forma", "fatica", "freschezza".
-4. In **nextMove** DEVI ancorarti alla "Prossima sessione del piano" sopra. Cita il nome esatto della sessione. NON inventare un allenamento diverso (no "Lungo Semplice 8-10km" se nel piano c'è "Medio in progressione"). Se serve, proponi (non imporre) piccoli aggiustamenti dentro quella sessione, incrociando come è andata oggi e lo stato di forma. Collega esplicitamente alla sessione di oggi ("visto che oggi...", "dato che hai spinto..."). Se NON c'è una prossima sessione pianificata, allora puoi proporre liberamente.
-5. Per planAdjustment: usa la "Stima ${raceDistLabel} dai log" e la sua **confidenza**. Se confidenza è "low" (metodo "target-fallback") OPPURE i dati di oggi sono implausibili, NON suggerire adattamenti del target — siamo ancora in fase di calibrazione, scrivi shouldAdjust=false. Se confidenza è "medium" o "high" e la stima differisce dal target di oltre 3 min in modo consistente, presentalo come OSSERVAZIONE da amico ("se vuoi puoi aggiornare il target", mai "devi"). Ricorda che è una banda, non un numero secco. Riferisciti sempre alla distanza ${raceDistLabel}.
-6. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight invita SOLO a sentire un medico, da amico preoccupato.
-7. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
+${visualBlock}
+
+ISTRUZIONI ESECUTIVE:
+1. **Plausibilità prima di tutto**: se status è "DATI IMPLAUSIBILI", segui <implausible_data> nel system prompt e metti planAdjustment.shouldAdjust=false.
+2. Tono e linguaggio devono rispettare <tone> e <language_rules>.
+3. Stato di forma: se "Affaticato", "Carico alto" o "Sovraccarico", in nextMove proponi SEMPRE come opzione di alleggerire. Se è "non disponibile", non inventare numeri di forma — di' che è ancora presto per leggere lo stato di forma.
+4. nextMove DEVE ancorarsi alla "Prossima sessione del piano" sopra (cita il nome esatto, non inventare un altro allenamento). Se manca, suggerisci liberamente.
+5. planAdjustment: usa la stima dai log e la confidenza. Se "low" o dati implausibili → shouldAdjust=false. Se "medium"/"high" e scostamento >3', presentalo come OSSERVAZIONE da amico.
+6. Se ci sono <visual_patterns>, integrali in technicalReading in modo descrittivo (vedi regole nel blocco).
+7. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight segui <safety>.
+8. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
 }
 
 function sanitizeOutput(parsed: any) {

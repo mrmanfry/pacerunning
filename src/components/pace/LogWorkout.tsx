@@ -5,11 +5,17 @@ import { uploadWorkoutScreenshot } from "@/lib/pace-repository";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
+export type VisualPatterns = {
+  hrPattern?: "stable" | "creep" | "spiky" | "fading" | null;
+  paceStrategy?: "even" | "negative-split" | "positive-split" | "intervals" | null;
+  observations?: string[];
+};
+
 interface Props {
   session: { data: Session; weekIdx: number; sessionIdx: number } | null;
   userId: string | null;
   onBack: () => void;
-  onSave: (log: WorkoutLog) => void;
+  onSave: (log: WorkoutLog, visualPatterns?: VisualPatterns | null) => void;
 }
 
 type AutoFlags = {
@@ -34,6 +40,7 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extractFailed, setExtractFailed] = useState(false);
+  const [visualPatterns, setVisualPatterns] = useState<VisualPatterns | null>(null);
 
   const canSave = data.duration > 0 && data.distance > 0 && data.hrAvg > 0;
 
@@ -82,6 +89,15 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
       if (typeof ext.cadence === "number") { newData.cadence = String(ext.cadence); flags.cadence = true; }
       setData(newData);
       setAutoFlags(flags);
+
+      // Pattern qualitativi dal grafico (vision estesa)
+      const vp: VisualPatterns = {
+        hrPattern: ext.hrPattern ?? null,
+        paceStrategy: ext.paceStrategy ?? null,
+        observations: Array.isArray(ext.observations) ? ext.observations : [],
+      };
+      const hasVp = vp.hrPattern || vp.paceStrategy || (vp.observations && vp.observations.length > 0);
+      setVisualPatterns(hasVp ? vp : null);
 
       const filledCount = Object.keys(flags).length;
       if (filledCount === 0) {
@@ -242,19 +258,22 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
         <button
           disabled={!canSave}
           onClick={() =>
-            onSave({
-              weekIdx: session?.weekIdx ?? null,
-              sessionIdx: session?.sessionIdx ?? null,
-              sessionType: (session?.data.type ?? "freeform") as SessionType,
-              sessionName: session?.data.name || "Allenamento libero",
-              duration: data.duration,
-              distance: data.distance,
-              hrAvg: data.hrAvg,
-              hrMax: data.hrMax,
-              rpe: data.rpe,
-              cadence: data.cadence ? parseInt(data.cadence) : null,
-              notes: data.notes,
-            })
+            onSave(
+              {
+                weekIdx: session?.weekIdx ?? null,
+                sessionIdx: session?.sessionIdx ?? null,
+                sessionType: (session?.data.type ?? "freeform") as SessionType,
+                sessionName: session?.data.name || "Allenamento libero",
+                duration: data.duration,
+                distance: data.distance,
+                hrAvg: data.hrAvg,
+                hrMax: data.hrMax,
+                rpe: data.rpe,
+                cadence: data.cadence ? parseInt(data.cadence) : null,
+                notes: data.notes,
+              },
+              visualPatterns,
+            )
           }
           className={`w-full py-4 rounded-full font-bold tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${
             canSave ? "bg-ink text-paper hover:bg-ink-soft shadow-lg" : "bg-stone-200 text-stone-400"

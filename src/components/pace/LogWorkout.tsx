@@ -40,6 +40,7 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extractFailed, setExtractFailed] = useState(false);
+  const [visualPatterns, setVisualPatterns] = useState<VisualPatterns | null>(null);
 
   const canSave = data.duration > 0 && data.distance > 0 && data.hrAvg > 0;
 

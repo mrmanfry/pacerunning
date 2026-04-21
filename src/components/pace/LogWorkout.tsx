@@ -321,6 +321,7 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
                 notes: data.notes,
               },
               visualPatterns,
+              extractionMeta,
             )
           }
           className={`w-full py-4 rounded-full font-bold tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${

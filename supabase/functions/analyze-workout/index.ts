@@ -8,7 +8,7 @@ const corsHeaders = {
 
 // Bumpa questa stringa ogni volta che cambi il prompt o lo schema del tool.
 // Convenzione: vN-YYYY-MM-DD[-suffix]
-const PROMPT_VERSION = "v3-2025-04-21-mdr";
+const PROMPT_VERSION = "v4-2025-04-21-segments";
 const MODEL = "google/gemini-3-flash-preview";
 
 // ------------------------------------------------------------------
@@ -108,7 +108,19 @@ Quando proponi qualcosa, sempre come opzione descrittiva: "potresti", "una possi
 "i runner spesso trovano utile". Mai come istruzione clinica.
 
 Se serve invitare a fermarsi (sintomi, dolore reale): rimanda al medico, NON dare istruzioni terapeutiche.
-</mdr_compliance>`;
+</mdr_compliance>
+
+<segment_analysis>
+Se nel prompt arrivano <segments> espliciti (lap dell'allenamento) E sessione "quality" (ripetute):
+- Confronta esecuzione vs piano e da' un giudizio descrittivo per OGNI ripetuta interessante in segmentReadings.
+- Identifica fading in modo descrittivo, mai con parole come "deriva patologica" o "decompensazione".
+Se arrivano <kmSplits> E sessione "long"/"easy":
+- Cerca derive descrittive (km finali con FC più alta a parità di passo) o crisi (km significativamente più lenti).
+
+In segmentReadings: una entry SOLO per i segmenti con qualcosa di interessante da dire (max 8). Frasi brevi (max 25 parole).
+Esempio: { segmentIdx: 2, comment: "R1 dentro target, FC pulita" }.
+Se nulla di rilevante: segmentReadings = [].
+</segment_analysis>`;
 
 const FORBIDDEN_WORDS = [
   "sindrome",
@@ -153,14 +165,14 @@ Deno.serve(async (req) => {
     const userId = userData.user.id;
 
     const body = await req.json();
-    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns } = body || {};
+    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout } = body || {};
     if (!computed || !log || !profile) return json({ error: "Invalid payload" }, 400);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return json({ error: "AI not configured" }, 500);
 
     const userPrompt = buildUserPrompt({
-      computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns,
+      computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout,
     });
 
     const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {

@@ -44,6 +44,7 @@ import {
   saveProfile,
   type StoredAnalysis,
 } from "@/lib/pace-repository";
+import { CURRENT_CONSENT_VERSION, CURRENT_TERMS_VERSION } from "@/lib/legal-versions";
 
 type Screen =
   | "loading"
@@ -92,7 +93,15 @@ const Index = () => {
           loadLatestAnalysis(user.id),
           loadRecentAnalyses(user.id, 3),
         ]);
-        const okConsents = !!(c && c.c1 && c.c2 && c.c3);
+        const okConsents = !!(
+          c &&
+          c.c1 &&
+          c.c2 &&
+          c.c3 &&
+          c.c4HealthData &&
+          c.consentVersion === CURRENT_CONSENT_VERSION &&
+          c.termsVersion === CURRENT_TERMS_VERSION
+        );
         setConsentsAccepted(okConsents);
         if (p) setProfile(p);
         if (pl) setPlan(pl);
@@ -127,7 +136,7 @@ const Index = () => {
     })();
   }, [authLoading, user]);
 
-  const acceptConsents = async (c: { c1: boolean; c2: boolean; c3: boolean }) => {
+  const acceptConsents = async (c: { c1: boolean; c2: boolean; c3: boolean; c4HealthData: boolean }) => {
     if (!user) return;
     try {
       await saveConsents(user.id, c);

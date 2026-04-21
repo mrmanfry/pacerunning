@@ -273,3 +273,27 @@ export async function resetAllForUser(userId: string) {
   await supabase.from("profiles").delete().eq("id", userId);
   await supabase.from("consents").delete().eq("user_id", userId);
 }
+
+// ---------- Export (GDPR art. 20 — portabilità) ----------
+export async function exportAllUserData(userId: string): Promise<Blob> {
+  const [profileRes, consentsRes, plansRes, logsRes, analysesRes] = await Promise.all([
+    supabase.from("profiles").select("*").eq("id", userId),
+    supabase.from("consents").select("*").eq("user_id", userId).order("accepted_at", { ascending: true }),
+    supabase.from("plans").select("*").eq("user_id", userId),
+    supabase.from("workout_logs").select("*").eq("user_id", userId).order("logged_at", { ascending: true }),
+    supabase.from("workout_analyses").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
+  ]);
+
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    schema: "pace-export-v1",
+    userId,
+    profile: profileRes.data ?? [],
+    consents: consentsRes.data ?? [],
+    plans: plansRes.data ?? [],
+    workoutLogs: logsRes.data ?? [],
+    workoutAnalyses: analysesRes.data ?? [],
+  };
+
+  return new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+}

@@ -40,6 +40,7 @@ import {
   resetAllForUser,
   saveAnalysis,
   saveConsents,
+  saveExtraction,
   savePlan,
   saveProfile,
   type StoredAnalysis,
@@ -162,7 +163,11 @@ const Index = () => {
     }
   };
 
-  const saveLog = async (log: WorkoutLog, visualPatterns?: import("@/components/pace/LogWorkout").VisualPatterns | null) => {
+  const saveLog = async (
+    log: WorkoutLog,
+    visualPatterns?: import("@/components/pace/LogWorkout").VisualPatterns | null,
+    extraction?: import("@/components/pace/LogWorkout").ExtractionMeta | null,
+  ) => {
     if (!user || !profile || !plan) return;
     const safety = checkSafetyFlags(log, profile, logs);
     if (safety.block) {
@@ -170,10 +175,14 @@ const Index = () => {
       setScreen("safetyAlert");
       return;
     }
-    await persistLog(log, visualPatterns ?? null);
+    await persistLog(log, visualPatterns ?? null, extraction ?? null);
   };
 
-  const persistLog = async (log: WorkoutLog, visualPatterns?: import("@/components/pace/LogWorkout").VisualPatterns | null) => {
+  const persistLog = async (
+    log: WorkoutLog,
+    visualPatterns?: import("@/components/pace/LogWorkout").VisualPatterns | null,
+    extraction?: import("@/components/pace/LogWorkout").ExtractionMeta | null,
+  ) => {
     if (!user || !profile || !plan) return;
     try {
       const inserted = await insertLog(user.id, log);

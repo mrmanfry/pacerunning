@@ -37,31 +37,51 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
     notes: "",
   });
   const [autoFlags, setAutoFlags] = useState<AutoFlags>({});
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [extracting, setExtracting] = useState(false);
   const [extractFailed, setExtractFailed] = useState(false);
   const [visualPatterns, setVisualPatterns] = useState<VisualPatterns | null>(null);
 
+  const MAX_IMAGES = 4;
   const canSave = data.duration > 0 && data.distance > 0 && data.hrAvg > 0;
 
   const handleScreenshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !userId) return;
-    if (file.size > 8 * 1024 * 1024) {
-      toast({ title: "Immagine troppo grande", description: "Massimo 8 MB.", variant: "destructive" });
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0 || !userId) return;
+    if (files.length > MAX_IMAGES) {
+      toast({ title: `Massimo ${MAX_IMAGES} immagini`, description: "Selezionane meno e riprova.", variant: "destructive" });
       return;
     }
+    for (const f of files) {
+      if (f.size > 8 * 1024 * 1024) {
+        toast({ title: "Immagine troppo grande", description: `${f.name}: massimo 8 MB.`, variant: "destructive" });
+        return;
+      }
+    }
 
-    const reader = new FileReader();
-    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
-    reader.readAsDataURL(file);
+    // Anteprime locali
+    const previews: string[] = [];
+    await Promise.all(
+      files.map(
+        (f) =>
+          new Promise<void>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              previews.push(ev.target?.result as string);
+              resolve();
+            };
+            reader.readAsDataURL(f);
+          }),
+      ),
+    );
+    setImagePreviews(previews);
 
     setExtracting(true);
     setExtractFailed(false);
     try {
-      const path = await uploadWorkoutScreenshot(userId, file);
+      const paths = await Promise.all(files.map((f) => uploadWorkoutScreenshot(userId, f)));
       const { data: result, error } = await supabase.functions.invoke("extract-workout-data", {
-        body: { imagePath: path, sessionType: session?.data.type ?? "freeform" },
+        body: { imagePaths: paths, sessionType: session?.data.type ?? "freeform" },
       });
 
       if (error) {
@@ -152,17 +172,25 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
             Carica uno screenshot da Apple Salute, Strava, Garmin... L'AI legge i numeri e compila il form.
           </div>
 
-          {imagePreview && (
-            <div className="mb-3 rounded-2xl overflow-hidden border border-stone-700 max-h-48">
-              <img src={imagePreview} alt="Screenshot allenamento" className="w-full object-contain bg-stone-900" />
+          {imagePreviews.length > 0 && (
+            <div className={`mb-3 grid gap-2 ${imagePreviews.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+              {imagePreviews.map((src, i) => (
+                <div key={i} className="rounded-2xl overflow-hidden border border-stone-700 max-h-40">
+                  <img src={src} alt={`Screenshot ${i + 1}`} className="w-full h-full object-contain bg-stone-900" />
+                </div>
+              ))}
             </div>
           )}
+
+          <div className="text-[11px] text-stone-400 mb-2 mono-font">
+            Puoi caricare fino a {MAX_IMAGES} screenshot dello stesso allenamento (es. totali + grafico FC).
+          </div>
 
           <label className={`block w-full ${extracting ? "opacity-60 pointer-events-none" : "cursor-pointer"}`}>
             <input
               type="file"
               accept="image/*"
-              capture="environment"
+              multiple
               onChange={handleScreenshot}
               disabled={extracting || !userId}
               className="hidden"
@@ -174,7 +202,7 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
                 </>
               ) : (
                 <>
-                  <Camera size={16} /> {imagePreview ? "CAMBIA SCREENSHOT" : "SCEGLI FOTO"}
+                  <Camera size={16} /> {imagePreviews.length > 0 ? "CAMBIA SCREENSHOT" : "SCEGLI FOTO"}
                 </>
               )}
             </div>

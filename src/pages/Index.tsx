@@ -153,7 +153,7 @@ const Index = () => {
     }
   };
 
-  const saveLog = async (log: WorkoutLog) => {
+  const saveLog = async (log: WorkoutLog, visualPatterns?: import("@/components/pace/LogWorkout").VisualPatterns | null) => {
     if (!user || !profile || !plan) return;
     const safety = checkSafetyFlags(log, profile, logs);
     if (safety.block) {
@@ -161,10 +161,10 @@ const Index = () => {
       setScreen("safetyAlert");
       return;
     }
-    await persistLog(log);
+    await persistLog(log, visualPatterns ?? null);
   };
 
-  const persistLog = async (log: WorkoutLog) => {
+  const persistLog = async (log: WorkoutLog, visualPatterns?: import("@/components/pace/LogWorkout").VisualPatterns | null) => {
     if (!user || !profile || !plan) return;
     try {
       const inserted = await insertLog(user.id, log);
@@ -276,7 +276,7 @@ const Index = () => {
 
       try {
         const { data: aiData, error: aiError } = await supabase.functions.invoke("analyze-workout", {
-          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock },
+          body: { computed, log: fullLog, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns: visualPatterns ?? null },
         });
 
         if (aiError) {
@@ -287,6 +287,7 @@ const Index = () => {
           setAnalysis(baseAnalysis);
         } else if (aiData?.analysis) {
           const ai = aiData.analysis;
+          const promptVersion: string | null = aiData?.promptVersion ?? null;
           setAnalysis({
             ...baseAnalysis,
             technicalReading: ai.technicalReading,
@@ -301,6 +302,7 @@ const Index = () => {
               technicalReading: ai.technicalReading ?? null,
               sessionHighlight: ai.sessionHighlight ?? null,
               nextMove: ai.nextMove ?? null,
+              promptVersion,
             });
             const fresh: StoredAnalysis = {
               id: `local-${Date.now()}`,

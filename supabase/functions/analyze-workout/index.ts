@@ -222,8 +222,21 @@ Deno.serve(async (req) => {
                     required: ["shouldAdjust", "reason", "newTargetEstimate", "message"],
                     additionalProperties: false,
                   },
+                  segmentReadings: {
+                    type: "array",
+                    description: "Commenti brevi per i segmenti interessanti (max 8). Vuoto se nulla di rilevante.",
+                    items: {
+                      type: "object",
+                      properties: {
+                        segmentIdx: { type: "integer" },
+                        comment: { type: "string", description: "Frase breve (max 25 parole), descrittiva" },
+                      },
+                      required: ["segmentIdx", "comment"],
+                      additionalProperties: false,
+                    },
+                  },
                 },
-                required: ["technicalReading", "sessionHighlight", "nextMove", "planAdjustment"],
+                required: ["technicalReading", "sessionHighlight", "nextMove", "planAdjustment", "segmentReadings"],
                 additionalProperties: false,
               },
             },

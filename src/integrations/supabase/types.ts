@@ -192,6 +192,7 @@ export type Database = {
           log_id: string
           next_move: string | null
           prompt_version: string | null
+          segment_readings: Json | null
           session_highlight: string | null
           technical_reading: string | null
           user_id: string
@@ -202,6 +203,7 @@ export type Database = {
           log_id: string
           next_move?: string | null
           prompt_version?: string | null
+          segment_readings?: Json | null
           session_highlight?: string | null
           technical_reading?: string | null
           user_id: string
@@ -212,6 +214,7 @@ export type Database = {
           log_id?: string
           next_move?: string | null
           prompt_version?: string | null
+          segment_readings?: Json | null
           session_highlight?: string | null
           technical_reading?: string | null
           user_id?: string

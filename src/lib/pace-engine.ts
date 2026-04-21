@@ -860,6 +860,8 @@ export interface Analysis {
   sessionHighlight?: string;
   aiNextMove?: string;
   planAdjustment?: PlanAdjustment;
+  segmentReadings?: { segmentIdx: number; comment: string }[];
+  extractedWorkout?: ExtractedWorkout | null;
   source?: "ai" | "fallback";
 }
 

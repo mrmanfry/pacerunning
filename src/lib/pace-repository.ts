@@ -203,6 +203,7 @@ export interface StoredAnalysis {
   technicalReading: string | null;
   sessionHighlight: string | null;
   nextMove: string | null;
+  segmentReadings: { segmentIdx: number; comment: string }[] | null;
   createdAt: string;
 }
 
@@ -213,6 +214,7 @@ export async function saveAnalysis(
     technicalReading?: string | null;
     sessionHighlight?: string | null;
     nextMove?: string | null;
+    segmentReadings?: { segmentIdx: number; comment: string }[] | null;
     promptVersion?: string | null;
   }
 ) {
@@ -222,45 +224,49 @@ export async function saveAnalysis(
     technical_reading: a.technicalReading ?? null,
     session_highlight: a.sessionHighlight ?? null,
     next_move: a.nextMove ?? null,
+    segment_readings: (a.segmentReadings ?? null) as any,
     prompt_version: a.promptVersion ?? null,
-  });
+  } as any);
   if (error) throw error;
 }
 
 export async function loadLatestAnalysis(userId: string): Promise<StoredAnalysis | null> {
   const { data, error } = await supabase
     .from("workout_analyses")
-    .select("id,log_id,technical_reading,session_highlight,next_move,created_at")
+    .select("id,log_id,technical_reading,session_highlight,next_move,segment_readings,created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
+  const d: any = data;
   return {
-    id: data.id,
-    logId: data.log_id,
-    technicalReading: data.technical_reading,
-    sessionHighlight: data.session_highlight,
-    nextMove: data.next_move,
-    createdAt: data.created_at,
+    id: d.id,
+    logId: d.log_id,
+    technicalReading: d.technical_reading,
+    sessionHighlight: d.session_highlight,
+    nextMove: d.next_move,
+    segmentReadings: d.segment_readings ?? null,
+    createdAt: d.created_at,
   };
 }
 
 export async function loadRecentAnalyses(userId: string, limit = 3): Promise<StoredAnalysis[]> {
   const { data, error } = await supabase
     .from("workout_analyses")
-    .select("id,log_id,technical_reading,session_highlight,next_move,created_at")
+    .select("id,log_id,technical_reading,session_highlight,next_move,segment_readings,created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(limit);
   if (error) throw error;
-  return (data || []).map((d) => ({
+  return (data || []).map((d: any) => ({
     id: d.id,
     logId: d.log_id,
     technicalReading: d.technical_reading,
     sessionHighlight: d.session_highlight,
     nextMove: d.next_move,
+    segmentReadings: d.segment_readings ?? null,
     createdAt: d.created_at,
   }));
 }

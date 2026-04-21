@@ -274,25 +274,57 @@ export async function resetAllForUser(userId: string) {
   await supabase.from("consents").delete().eq("user_id", userId);
 }
 
+// ---------- Workout extractions (deep AI extraction from screenshots) ----------
+export async function saveExtraction(
+  userId: string,
+  logId: string | null,
+  extraction: unknown,
+  meta: { sourceImagePaths?: string[]; promptVersion?: string | null; model?: string | null } = {},
+) {
+  const { error } = await supabase.from("workout_extractions" as any).insert({
+    user_id: userId,
+    log_id: logId,
+    raw_extraction: extraction as any,
+    source_image_paths: meta.sourceImagePaths ?? [],
+    prompt_version: meta.promptVersion ?? null,
+    model: meta.model ?? null,
+  } as any);
+  if (error) throw error;
+}
+
+export async function loadExtraction(logId: string): Promise<any | null> {
+  const { data, error } = await supabase
+    .from("workout_extractions" as any)
+    .select("raw_extraction,prompt_version,model,created_at")
+    .eq("log_id", logId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? (data as any).raw_extraction : null;
+}
+
 // ---------- Export (GDPR art. 20 — portabilità) ----------
 export async function exportAllUserData(userId: string): Promise<Blob> {
-  const [profileRes, consentsRes, plansRes, logsRes, analysesRes] = await Promise.all([
+  const [profileRes, consentsRes, plansRes, logsRes, analysesRes, extractionsRes] = await Promise.all([
     supabase.from("profiles").select("*").eq("id", userId),
     supabase.from("consents").select("*").eq("user_id", userId).order("accepted_at", { ascending: true }),
     supabase.from("plans").select("*").eq("user_id", userId),
     supabase.from("workout_logs").select("*").eq("user_id", userId).order("logged_at", { ascending: true }),
     supabase.from("workout_analyses").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
+    supabase.from("workout_extractions" as any).select("*").eq("user_id", userId).order("created_at", { ascending: true }),
   ]);
 
   const payload = {
     exportedAt: new Date().toISOString(),
-    schema: "pace-export-v1",
+    schema: "pace-export-v2",
     userId,
     profile: profileRes.data ?? [],
     consents: consentsRes.data ?? [],
     plans: plansRes.data ?? [],
     workoutLogs: logsRes.data ?? [],
     workoutAnalyses: analysesRes.data ?? [],
+    workoutExtractions: extractionsRes.data ?? [],
   };
 
   return new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });

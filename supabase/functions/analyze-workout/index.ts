@@ -310,7 +310,7 @@ Deno.serve(async (req) => {
 });
 
 function buildUserPrompt(args: any): string {
-  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns } = args;
+  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout } = args;
   const recent = (recentSameType || [])
     .map(
       (r: any, i: number) =>
@@ -406,6 +406,23 @@ ${nextBlock}
 ${loadStateBlock}
 
 ${visualBlock}
+
+${(() => {
+  if (!extractedWorkout) return "";
+  const ew = extractedWorkout;
+  const segLines = (ew.segments || []).map((s: any) =>
+    `  ${s.idx}. [${s.type}] ${s.label} — ${s.durationSec ? Math.round(s.durationSec / 60) + "'" + String(s.durationSec % 60).padStart(2, "0") + "\"" : "n/d"}, FC ${s.hrAvg ?? "n/d"}/${s.hrMax ?? "n/d"}, pace ${s.paceSecPerKm ? Math.floor(s.paceSecPerKm / 60) + "'" + String(s.paceSecPerKm % 60).padStart(2, "0") + "\"/km" : "n/d"}`
+  ).join("\n");
+  const splitLines = (ew.kmSplits || []).map((k: any) =>
+    `  km ${k.km}: pace ${k.paceSecPerKm ? Math.floor(k.paceSecPerKm / 60) + "'" + String(k.paceSecPerKm % 60).padStart(2, "0") + "\"" : "n/d"}, FC ${k.hrAvg ?? "n/d"}`
+  ).join("\n");
+  const zones = (ew.hrZones || []).map((z: any) => `Z${z.zone}: ${z.percent}%`).join(" · ");
+  const blocks: string[] = [];
+  if (segLines) blocks.push(`<segments>\nSegmenti / lap espliciti dell'allenamento:\n${segLines}\n</segments>`);
+  if (splitLines) blocks.push(`<kmSplits>\nParziali per km:\n${splitLines}\n</kmSplits>`);
+  if (zones) blocks.push(`<hrZones>\nDistribuzione tempo per zone FC: ${zones}\n</hrZones>`);
+  return blocks.join("\n\n");
+})()}
 
 ISTRUZIONI ESECUTIVE:
 1. **Plausibilità prima di tutto**: se status è "DATI IMPLAUSIBILI", segui <implausible_data> nel system prompt e metti planAdjustment.shouldAdjust=false.

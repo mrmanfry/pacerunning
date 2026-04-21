@@ -258,19 +258,22 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
         <button
           disabled={!canSave}
           onClick={() =>
-            onSave({
-              weekIdx: session?.weekIdx ?? null,
-              sessionIdx: session?.sessionIdx ?? null,
-              sessionType: (session?.data.type ?? "freeform") as SessionType,
-              sessionName: session?.data.name || "Allenamento libero",
-              duration: data.duration,
-              distance: data.distance,
-              hrAvg: data.hrAvg,
-              hrMax: data.hrMax,
-              rpe: data.rpe,
-              cadence: data.cadence ? parseInt(data.cadence) : null,
-              notes: data.notes,
-            })
+            onSave(
+              {
+                weekIdx: session?.weekIdx ?? null,
+                sessionIdx: session?.sessionIdx ?? null,
+                sessionType: (session?.data.type ?? "freeform") as SessionType,
+                sessionName: session?.data.name || "Allenamento libero",
+                duration: data.duration,
+                distance: data.distance,
+                hrAvg: data.hrAvg,
+                hrMax: data.hrMax,
+                rpe: data.rpe,
+                cadence: data.cadence ? parseInt(data.cadence) : null,
+                notes: data.notes,
+              },
+              visualPatterns,
+            )
           }
           className={`w-full py-4 rounded-full font-bold tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${
             canSave ? "bg-ink text-paper hover:bg-ink-soft shadow-lg" : "bg-stone-200 text-stone-400"

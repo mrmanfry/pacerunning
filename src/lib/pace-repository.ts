@@ -1,33 +1,52 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Plan, Profile, WorkoutLog, SessionType } from "./pace-engine";
+import { CURRENT_CONSENT_VERSION, CURRENT_TERMS_VERSION } from "./legal-versions";
 
 export interface ConsentRecord {
   c1: boolean;
   c2: boolean;
   c3: boolean;
+  c4HealthData: boolean;
+  consentVersion: string;
+  termsVersion: string;
 }
 
 // ---------- Consents ----------
-export async function saveConsents(userId: string, c: ConsentRecord) {
+export async function saveConsents(
+  userId: string,
+  c: { c1: boolean; c2: boolean; c3: boolean; c4HealthData: boolean }
+) {
   const { error } = await supabase.from("consents").insert({
     user_id: userId,
     c1: c.c1,
     c2: c.c2,
     c3: c.c3,
-  });
+    c4_health_data: c.c4HealthData,
+    consent_version: CURRENT_CONSENT_VERSION,
+    terms_version: CURRENT_TERMS_VERSION,
+  } as any);
   if (error) throw error;
 }
 
 export async function loadLatestConsents(userId: string): Promise<ConsentRecord | null> {
   const { data, error } = await supabase
     .from("consents")
-    .select("c1,c2,c3")
+    .select("c1,c2,c3,c4_health_data,consent_version,terms_version")
     .eq("user_id", userId)
     .order("accepted_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) throw error;
-  return data ? { c1: data.c1, c2: data.c2, c3: data.c3 } : null;
+  if (!data) return null;
+  const d: any = data;
+  return {
+    c1: d.c1,
+    c2: d.c2,
+    c3: d.c3,
+    c4HealthData: d.c4_health_data ?? false,
+    consentVersion: d.consent_version ?? "v0",
+    termsVersion: d.terms_version ?? "v0",
+  };
 }
 
 // ---------- Profile ----------
@@ -253,4 +272,28 @@ export async function resetAllForUser(userId: string) {
   await supabase.from("plans").delete().eq("user_id", userId);
   await supabase.from("profiles").delete().eq("id", userId);
   await supabase.from("consents").delete().eq("user_id", userId);
+}
+
+// ---------- Export (GDPR art. 20 — portabilità) ----------
+export async function exportAllUserData(userId: string): Promise<Blob> {
+  const [profileRes, consentsRes, plansRes, logsRes, analysesRes] = await Promise.all([
+    supabase.from("profiles").select("*").eq("id", userId),
+    supabase.from("consents").select("*").eq("user_id", userId).order("accepted_at", { ascending: true }),
+    supabase.from("plans").select("*").eq("user_id", userId),
+    supabase.from("workout_logs").select("*").eq("user_id", userId).order("logged_at", { ascending: true }),
+    supabase.from("workout_analyses").select("*").eq("user_id", userId).order("created_at", { ascending: true }),
+  ]);
+
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    schema: "pace-export-v1",
+    userId,
+    profile: profileRes.data ?? [],
+    consents: consentsRes.data ?? [],
+    plans: plansRes.data ?? [],
+    workoutLogs: logsRes.data ?? [],
+    workoutAnalyses: analysesRes.data ?? [],
+  };
+
+  return new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
 }

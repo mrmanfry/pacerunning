@@ -354,7 +354,55 @@ export function checkSafetyFlags(
   return { block: false };
 }
 
-// ---------- Plan generation (Cap. 2.4) — Adaptive phases ----------
+// ---------- Plan generation (Cap. 2.4) — Calendar-aware adaptive phases ----------
+//
+// Ragiona a settimane di calendario (lun-dom) tra oggi e raceDate.
+// - La settimana corrente è troncata: solo i giorni rimasti da oggi a domenica.
+// - La settimana gara è troncata: solo i giorni prima della gara (gara compresa come sessione).
+// - Sessioni per settimana = min(weeklyFreq, floor((giorniDisponibili + 1) / 2))
+//   per garantire ≥1 giorno di recupero tra qualsiasi sessione.
+// - Il template della settimana (base/build/intensity/specificity/taper) dipende
+//   da quante settimane mancano alla gara.
+// - Da ogni template selezioniamo le sessioni più caratterizzanti se weeklyFreq < 3,
+//   o aggiungiamo un easy extra se weeklyFreq > 3.
+
+type WeekTemplateKind = "base" | "build" | "intensity" | "specificity" | "taper";
+
+// Day-of-week indices: 0=Mon ... 6=Sun. JS Date.getDay() returns 0=Sun...6=Sat,
+// so we remap to make week math (lun-dom) clearer.
+function dowMonFirst(d: Date): number {
+  const js = d.getDay(); // 0=Sun..6=Sat
+  return (js + 6) % 7; // 0=Mon..6=Sun
+}
+
+// Returns the Monday (local midnight) of the calendar week containing `d`.
+function startOfWeekMonday(d: Date): Date {
+  const local = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const dow = dowMonFirst(local);
+  local.setDate(local.getDate() - dow);
+  return local;
+}
+
+function addDays(d: Date, n: number): Date {
+  const out = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  out.setDate(out.getDate() + n);
+  return out;
+}
+
+// Max sessions in a window of `days` calendar days while keeping ≥1 day of rest
+// between any two sessions: floor((days + 1) / 2).
+//   1 day  → 1 session
+//   2 days → 1 (need rest after)
+//   3 days → 2 (g1, g3)
+//   4 days → 2
+//   5 days → 3
+//   6 days → 3
+//   7 days → 4
+function maxSessionsWithRest(days: number): number {
+  if (days <= 0) return 0;
+  return Math.floor((days + 1) / 2);
+}
+
 export function generatePlan(profile: Profile): Plan {
   const { hrMax } = computeZones(profile);
   const z2: [number, number] = [Math.round(hrMax * 0.65), Math.round(hrMax * 0.75)];
@@ -363,248 +411,329 @@ export function generatePlan(profile: Profile): Plan {
   const z5: [number, number] = [Math.round(hrMax * 0.9), Math.round(hrMax * 0.95)];
   const racePace = Math.round(hrMax * 0.88);
 
-  const days = profile.daysUntilRace;
-  const totalWeeks = Math.max(1, Math.floor(days / 7));
-
   // "Lungo lento" duration scales with race distance (capped 60-120').
-  // Approx: 5K → 60', 10K → 70', 21K → ~95-105', marathon → 120'.
   const raceDist = profile.raceDistance || 10;
   const baseLong = Math.max(60, Math.min(120, Math.round(raceDist * 7)));
   const longDuration = baseLong;
   const longBuildDuration = Math.min(120, baseLong + 10);
   const longIntensityDuration = Math.min(120, baseLong + 5);
 
-  const baseWeek = (): Week => ({
-    theme: "BASE + ATTIVAZIONE",
-    sessions: [
-      {
-        name: "Corsa facile + allunghi",
-        type: "easy",
-        duration: 45,
-        targetHR: `${z2[0]}-${z2[1]}`,
-        blocks: [
-          `Circa 45' di corsa continua, FC indicativa tra ${z2[0]} e ${z2[1]} bpm`,
-          "4 allunghi brevi da ~100m con camminata di recupero tra uno e l'altro",
-          "Se riesci a parlare a frasi intere, probabilmente sei nell'intensità giusta",
-        ],
-        notes: 'Gli allenamenti percepiti come "troppo facili" spesso sono quelli che fanno più differenza nel tempo, contrariamente all\'intuizione.',
-      },
-      {
-        name: "Intensità medio-alta",
-        type: "quality",
-        duration: 44,
-        targetHR: `${z4[0]}-${z4[1]}`,
-        blocks: [
-          "10' di riscaldamento progressivo",
-          `3 blocchi di 8' a intensità medio-alta (indicativamente ${z4[0]}-${z4[1]} bpm)`,
-          "3' di corsa lenta di recupero tra i blocchi",
-          "10' di defaticamento lento",
-        ],
-        notes: "Lo sforzo percepito di riferimento per questo tipo di lavoro, secondo la letteratura amatoriale, è intorno a 7/10: impegnativo ma non massimale.",
-      },
-      {
-        name: "Lungo lento",
-        type: "long",
-        duration: longDuration,
-        targetHR: `${z2[0]}-${z2[1] + 5}`,
-        blocks: [
-          `Circa ${longDuration}' di corsa continua a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
-          "Idratati regolarmente se hai la bottiglia",
-          "Se serve camminare brevi tratti, va bene",
-        ],
-        notes: "Il lungo lento è uno degli allenamenti più citati nella letteratura amatoriale per gare di resistenza.",
-      },
+  // ---------- Session library (poi le selezioniamo per settimana) ----------
+  const easyShort: Session = {
+    name: "Corsa facile + allunghi",
+    type: "easy",
+    duration: 45,
+    targetHR: `${z2[0]}-${z2[1]}`,
+    blocks: [
+      `Circa 45' di corsa continua, FC indicativa tra ${z2[0]} e ${z2[1]} bpm`,
+      "4 allunghi brevi da ~100m con camminata di recupero tra uno e l'altro",
+      "Se riesci a parlare a frasi intere, probabilmente sei nell'intensità giusta",
     ],
-  });
+    notes: 'Gli allenamenti percepiti come "troppo facili" spesso sono quelli che fanno più differenza nel tempo, contrariamente all\'intuizione.',
+  };
 
-  const buildWeek = (): Week => ({
-    theme: "COSTRUZIONE",
-    sessions: [
-      {
-        name: "Corsa facile",
-        type: "easy",
-        duration: 50,
-        targetHR: `${z2[0]}-${z2[1]}`,
-        blocks: [
-          `50' continui a intensità leggera (${z2[0]}-${z2[1]} bpm)`,
-          "Tieni un ritmo che permetta di respirare con il naso a tratti",
-        ],
-      },
-      {
-        name: "Medio progressivo",
-        type: "medium",
-        duration: 45,
-        targetHR: `${z3[1]}-${z4[0]}`,
-        blocks: [
-          "10' di attivazione lenta",
-          `25' a intensità che si sente ma è sostenibile (${z3[1]}-${z4[0]} bpm)`,
-          "10' di defaticamento",
-        ],
-      },
-      {
-        name: "Lungo lento",
-        type: "long",
-        duration: longBuildDuration,
-        targetHR: `${z2[0]}-${z2[1] + 5}`,
-        blocks: [`Circa ${longBuildDuration}' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`, "Porta acqua se fa caldo"],
-      },
+  const easyContinuous: Session = {
+    name: "Corsa facile",
+    type: "easy",
+    duration: 50,
+    targetHR: `${z2[0]}-${z2[1]}`,
+    blocks: [
+      `50' continui a intensità leggera (${z2[0]}-${z2[1]} bpm)`,
+      "Tieni un ritmo che permetta di respirare con il naso a tratti",
     ],
-  });
+  };
 
-  const intensityWeek = (): Week => ({
-    theme: "INTENSITÀ + SPECIFICITÀ",
-    sessions: [
-      {
-        name: "Ripetute brevi",
-        type: "quality",
-        duration: 40,
-        targetHR: `${z5[0]}-${z5[1]}`,
-        blocks: [
-          "10' di riscaldamento",
-          `5 blocchi di 3' a intensità alta (indicativamente ${z5[0]}-${z5[1]} bpm)`,
-          "2' di corsa lenta tra i blocchi",
-          "10' di defaticamento",
-        ],
-        notes: "Respirazione decisamente accelerata ma non al limite. Se non riesci a completare un blocco, rallentare è sempre un'opzione ragionevole.",
-      },
-      {
-        name: "Corsa continua medio-alta",
-        type: "medium",
-        duration: 40,
-        targetHR: `${z3[1]}-${z4[0]}`,
-        blocks: [
-          `Circa 40' di corsa continua a intensità sostenibile (${z3[1]}-${z4[0]} bpm)`,
-          "Non deve essere faticosa come le ripetute, non facile come il lungo",
-        ],
-      },
-      {
-        name: "Lungo lento",
-        type: "long",
-        duration: longIntensityDuration,
-        targetHR: `${z2[0]}-${z2[1] + 5}`,
-        blocks: [
-          `Circa ${longIntensityDuration}' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
-          "Possibile inserire 5' di ritmo medio verso metà percorso se le gambe rispondono bene",
-        ],
-      },
+  const easyShorter: Session = {
+    name: "Corsa facile",
+    type: "easy",
+    duration: 40,
+    targetHR: `${z2[0]}-${z2[1]}`,
+    blocks: [`40' continui a intensità leggera (${z2[0]}-${z2[1]} bpm)`],
+  };
+
+  const qualityMediumHigh: Session = {
+    name: "Intensità medio-alta",
+    type: "quality",
+    duration: 44,
+    targetHR: `${z4[0]}-${z4[1]}`,
+    blocks: [
+      "10' di riscaldamento progressivo",
+      `3 blocchi di 8' a intensità medio-alta (indicativamente ${z4[0]}-${z4[1]} bpm)`,
+      "3' di corsa lenta di recupero tra i blocchi",
+      "10' di defaticamento lento",
     ],
-  });
+    notes: "Lo sforzo percepito di riferimento per questo tipo di lavoro, secondo la letteratura amatoriale, è intorno a 7/10: impegnativo ma non massimale.",
+  };
 
-  const specificityWeek = (): Week => ({
-    theme: "RITMO GARA",
-    sessions: [
-      {
-        name: "Ritmo gara breve",
-        type: "quality",
-        duration: 45,
-        targetHR: `${racePace}`,
-        blocks: [
-          "10' di riscaldamento",
-          `3 blocchi di 6' a ritmo gara indicativo (~${racePace} bpm)`,
-          "3' di corsa lenta tra i blocchi",
-          "10' di defaticamento",
-        ],
-        notes: "Familiarizza il corpo con la sensazione del ritmo gara.",
-      },
-      {
-        name: "Corsa facile",
-        type: "easy",
-        duration: 40,
-        targetHR: `${z2[0]}-${z2[1]}`,
-        blocks: [`40' continui a intensità leggera (${z2[0]}-${z2[1]} bpm)`],
-      },
-      {
-        name: "Medio in progressione",
-        type: "medium",
-        duration: 50,
-        targetHR: `${z3[1]}-${z4[0]}`,
-        blocks: [
-          "20' di corsa facile",
-          `20' progressivi fino a ritmo gara (${z3[1]}-${z4[0]} bpm)`,
-          "10' di defaticamento",
-        ],
-      },
+  const qualityShortReps: Session = {
+    name: "Ripetute brevi",
+    type: "quality",
+    duration: 40,
+    targetHR: `${z5[0]}-${z5[1]}`,
+    blocks: [
+      "10' di riscaldamento",
+      `5 blocchi di 3' a intensità alta (indicativamente ${z5[0]}-${z5[1]} bpm)`,
+      "2' di corsa lenta tra i blocchi",
+      "10' di defaticamento",
     ],
-  });
+    notes: "Respirazione decisamente accelerata ma non al limite. Se non riesci a completare un blocco, rallentare è sempre un'opzione ragionevole.",
+  };
 
-  const taperWeek = (): Week => ({
-    theme: "RALLENTAMENTO + GARA",
-    sessions: [
-      {
-        name: "Corsa facile",
-        type: "easy",
-        duration: 45,
-        targetHR: `${z2[0]}-${z2[1]}`,
-        blocks: [
-          `Circa 45' di corsa continua, mantenendo una FC indicativa tra ${z2[0]} e ${z2[1]} bpm`,
-          "Se ti sembra troppo facile, probabilmente è il ritmo giusto",
-          "Nella parte finale, qualche allungo breve se il corpo risponde bene",
-        ],
-        notes: "Nelle settimane che precedono una gara, la letteratura amatoriale suggerisce di alleggerire il carico.",
-      },
-      {
-        name: "Pre-gara",
-        type: "race",
-        duration: 35,
-        targetHR: `${racePace}`,
-        blocks: [
-          "10' di riscaldamento a intensità leggera",
-          `2 blocchi di circa 5' a ritmo gara indicativo (~${racePace} bpm), con 2' di corsa lenta tra l'uno e l'altro`,
-          "10' di defaticamento lento",
-        ],
-        notes: 'Questa sessione viene spesso descritta come un "promemoria" del ritmo, non un allenamento di carico.',
-      },
-      {
-        name: "Giorno gara",
-        type: "race",
-        duration: Math.round(profile.targetTime),
-        targetHR: `${racePace}`,
-        blocks: [
-          `Spesso si consiglia di partire controllati: primi km sotto la propria FC soglia (~${Math.round(hrMax * 0.86)} bpm indicativi)`,
-          `Corpo centrale della gara: intensità medio-alta, indicativamente ${Math.round(hrMax * 0.88)}-${Math.round(hrMax * 0.92)} bpm`,
-          "Finale: se senti di avere margine, puoi chiudere progressivamente",
-          `Ritmo ipotetico per ${profile.targetTime}' su ${profile.raceDistance || 10}km: ${paceFromTime(profile.targetTime, profile.raceDistance || 10)}/km`,
-        ],
-        notes: "Partire troppo forte è l'errore più comunemente segnalato nella letteratura amatoriale.",
-      },
+  const mediumProgressive: Session = {
+    name: "Medio progressivo",
+    type: "medium",
+    duration: 45,
+    targetHR: `${z3[1]}-${z4[0]}`,
+    blocks: [
+      "10' di attivazione lenta",
+      `25' a intensità che si sente ma è sostenibile (${z3[1]}-${z4[0]} bpm)`,
+      "10' di defaticamento",
     ],
-  });
+  };
 
-  const weeks: Week[] = [];
-  let shortPrep = false;
-  let veryShortPrep = false;
+  const mediumContinuous: Session = {
+    name: "Corsa continua medio-alta",
+    type: "medium",
+    duration: 40,
+    targetHR: `${z3[1]}-${z4[0]}`,
+    blocks: [
+      `Circa 40' di corsa continua a intensità sostenibile (${z3[1]}-${z4[0]} bpm)`,
+      "Non deve essere faticosa come le ripetute, non facile come il lungo",
+    ],
+  };
 
-  if (days < 14) {
-    // Very short: only race
-    veryShortPrep = true;
-    shortPrep = true;
-    weeks.push(taperWeek());
-  } else if (totalWeeks === 2) {
-    shortPrep = true;
-    weeks.push(specificityWeek());
-    weeks.push(taperWeek());
-  } else if (totalWeeks === 3) {
-    shortPrep = true;
-    weeks.push(intensityWeek());
-    weeks.push(specificityWeek());
-    weeks.push(taperWeek());
-  } else if (totalWeeks <= 5) {
-    weeks.push(baseWeek());
-    if (totalWeeks === 5) weeks.push(buildWeek());
-    weeks.push(intensityWeek());
-    weeks.push(specificityWeek());
-    weeks.push(taperWeek());
-  } else {
-    // 6+ weeks: full plan
-    weeks.push(baseWeek());
-    const buildCount = Math.min(totalWeeks - 4, 3);
-    for (let i = 0; i < buildCount; i++) weeks.push(buildWeek());
-    weeks.push(intensityWeek());
-    weeks.push(specificityWeek());
-    weeks.push(taperWeek());
+  const mediumProgressionRace: Session = {
+    name: "Medio in progressione",
+    type: "medium",
+    duration: 50,
+    targetHR: `${z3[1]}-${z4[0]}`,
+    blocks: [
+      "20' di corsa facile",
+      `20' progressivi fino a ritmo gara (${z3[1]}-${z4[0]} bpm)`,
+      "10' di defaticamento",
+    ],
+  };
+
+  const longBase: Session = {
+    name: "Lungo lento",
+    type: "long",
+    duration: longDuration,
+    targetHR: `${z2[0]}-${z2[1] + 5}`,
+    blocks: [
+      `Circa ${longDuration}' di corsa continua a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
+      "Idratati regolarmente se hai la bottiglia",
+      "Se serve camminare brevi tratti, va bene",
+    ],
+    notes: "Il lungo lento è uno degli allenamenti più citati nella letteratura amatoriale per gare di resistenza.",
+  };
+
+  const longBuild: Session = {
+    name: "Lungo lento",
+    type: "long",
+    duration: longBuildDuration,
+    targetHR: `${z2[0]}-${z2[1] + 5}`,
+    blocks: [`Circa ${longBuildDuration}' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`, "Porta acqua se fa caldo"],
+  };
+
+  const longIntensity: Session = {
+    name: "Lungo lento",
+    type: "long",
+    duration: longIntensityDuration,
+    targetHR: `${z2[0]}-${z2[1] + 5}`,
+    blocks: [
+      `Circa ${longIntensityDuration}' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
+      "Possibile inserire 5' di ritmo medio verso metà percorso se le gambe rispondono bene",
+    ],
+  };
+
+  const racePaceShort: Session = {
+    name: "Ritmo gara breve",
+    type: "quality",
+    duration: 45,
+    targetHR: `${racePace}`,
+    blocks: [
+      "10' di riscaldamento",
+      `3 blocchi di 6' a ritmo gara indicativo (~${racePace} bpm)`,
+      "3' di corsa lenta tra i blocchi",
+      "10' di defaticamento",
+    ],
+    notes: "Familiarizza il corpo con la sensazione del ritmo gara.",
+  };
+
+  const preRace: Session = {
+    name: "Pre-gara",
+    type: "race",
+    duration: 35,
+    targetHR: `${racePace}`,
+    blocks: [
+      "10' di riscaldamento a intensità leggera",
+      `2 blocchi di circa 5' a ritmo gara indicativo (~${racePace} bpm), con 2' di corsa lenta tra l'uno e l'altro`,
+      "10' di defaticamento lento",
+    ],
+    notes: 'Questa sessione viene spesso descritta come un "promemoria" del ritmo, non un allenamento di carico.',
+  };
+
+  const raceDay: Session = {
+    name: "Giorno gara",
+    type: "race",
+    duration: Math.round(profile.targetTime),
+    targetHR: `${racePace}`,
+    blocks: [
+      `Spesso si consiglia di partire controllati: primi km sotto la propria FC soglia (~${Math.round(hrMax * 0.86)} bpm indicativi)`,
+      `Corpo centrale della gara: intensità medio-alta, indicativamente ${Math.round(hrMax * 0.88)}-${Math.round(hrMax * 0.92)} bpm`,
+      "Finale: se senti di avere margine, puoi chiudere progressivamente",
+      `Ritmo ipotetico per ${profile.targetTime}' su ${profile.raceDistance || 10}km: ${paceFromTime(profile.targetTime, profile.raceDistance || 10)}/km`,
+    ],
+    notes: "Partire troppo forte è l'errore più comunemente segnalato nella letteratura amatoriale.",
+  };
+
+  // ---------- Selezione sessioni per template + numero target ----------
+  // Ordine di priorità per template: la prima è la più caratterizzante.
+  // Ne prendiamo `count` dall'inizio. Se count > base, aggiungiamo easy extra.
+  const TEMPLATE_PRIORITY: Record<WeekTemplateKind, Session[]> = {
+    base: [longBase, qualityMediumHigh, easyShort],
+    build: [longBuild, mediumProgressive, easyContinuous],
+    intensity: [qualityShortReps, longIntensity, mediumContinuous],
+    specificity: [racePaceShort, mediumProgressionRace, easyShorter],
+    taper: [], // gestito separatamente
+  };
+
+  const TEMPLATE_THEME: Record<WeekTemplateKind, string> = {
+    base: "BASE + ATTIVAZIONE",
+    build: "COSTRUZIONE",
+    intensity: "INTENSITÀ + SPECIFICITÀ",
+    specificity: "RITMO GARA",
+    taper: "RALLENTAMENTO + GARA",
+  };
+
+  function selectSessions(kind: WeekTemplateKind, count: number): Session[] {
+    if (count <= 0) return [];
+    const priority = TEMPLATE_PRIORITY[kind];
+    if (count <= priority.length) return priority.slice(0, count);
+    // count > 3: aggiungiamo sessioni easy extra (corsa facile breve)
+    const extra = count - priority.length;
+    const out = [...priority];
+    for (let i = 0; i < extra; i++) {
+      out.push({
+        ...easyShorter,
+        name: `Corsa facile`,
+      });
+    }
+    return out;
   }
 
-  return { weeks, target: profile.targetTime, adjustedEstimate: null, shortPrep, veryShortPrep };
+  // ---------- Calendar walk ----------
+  const today = new Date();
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const raceDate = profile.raceDate ? toLocalMidnight(profile.raceDate) : addDays(todayMidnight, profile.daysUntilRace);
+  const totalDays = Math.max(0, daysBetween(todayMidnight, raceDate));
+
+  const weeklyFreq = Math.max(1, Math.min(7, profile.weeklyFreq || 3));
+  const weeks: Week[] = [];
+
+  // Edge case: gara oggi o ieri → solo race day
+  if (totalDays <= 0) {
+    weeks.push({
+      theme: TEMPLATE_THEME.taper,
+      sessions: [raceDay],
+    });
+    return {
+      weeks,
+      target: profile.targetTime,
+      adjustedEstimate: null,
+      shortPrep: true,
+      veryShortPrep: true,
+    };
+  }
+
+  // Calcoliamo le settimane di calendario lun-dom che intersecano [oggi, raceDate].
+  const firstWeekStart = startOfWeekMonday(todayMidnight);
+  const raceWeekStart = startOfWeekMonday(raceDate);
+  const numWeeks =
+    Math.round((raceWeekStart.getTime() - firstWeekStart.getTime()) / (7 * 86400000)) + 1;
+
+  // Per ciascuna settimana decidiamo il template in base alla distanza dalla gara.
+  // settimaneAllaGara = numWeeks - 1 - weekIdx (0 = settimana gara stessa)
+  function templateFor(weeksToRace: number): WeekTemplateKind {
+    if (weeksToRace === 0) return "taper";
+    if (weeksToRace === 1) return "specificity";
+    if (weeksToRace <= 3) return "intensity";
+    if (weeksToRace <= 6) return "build";
+    return "base";
+  }
+
+  for (let wi = 0; wi < numWeeks; wi++) {
+    const weekStart = addDays(firstWeekStart, wi * 7);
+    const weekEnd = addDays(weekStart, 6); // domenica
+    const isFirstWeek = wi === 0;
+    const isRaceWeek = wi === numWeeks - 1;
+    const weeksToRace = numWeeks - 1 - wi;
+    const kind = templateFor(weeksToRace);
+
+    // Giorni disponibili per allenarsi nella settimana
+    let availableDays: number;
+    if (isRaceWeek) {
+      // Solo i giorni *prima* della gara contano per le sessioni di taper.
+      // La gara è una sessione separata aggiunta in coda.
+      availableDays = Math.max(0, daysBetween(weekStart, raceDate));
+      if (isFirstWeek) {
+        // settimana gara coincide con settimana corrente: dai giorni disponibili
+        // togli quelli già passati (da lun fino a oggi escluso? no, oggi incluso
+        // come potenziale allenamento). Conta da oggi al giorno gara - 1.
+        availableDays = Math.max(0, daysBetween(todayMidnight, raceDate));
+      }
+    } else if (isFirstWeek) {
+      // da oggi a domenica inclusi
+      availableDays = daysBetween(todayMidnight, weekEnd) + 1;
+    } else {
+      availableDays = 7;
+    }
+
+    // Sessioni effettive: limitate da weeklyFreq E dal vincolo di recupero
+    const maxByRest = maxSessionsWithRest(availableDays);
+    const targetCount = isRaceWeek
+      ? Math.max(0, Math.min(weeklyFreq - 1, maxByRest)) // -1 perché la gara conta come 1
+      : Math.min(weeklyFreq, maxByRest);
+
+    const sessions: Session[] = [];
+
+    if (isRaceWeek) {
+      // Sessioni di taper: pre-gara è prioritaria, poi easy
+      const taperPool: Session[] = [preRace, easyShort, easyShorter];
+      for (let i = 0; i < targetCount && i < taperPool.length; i++) {
+        sessions.push(taperPool[i]);
+      }
+      // sempre la gara in coda
+      sessions.push(raceDay);
+    } else {
+      sessions.push(...selectSessions(kind, targetCount));
+    }
+
+    // Salta settimane completamente vuote (es. settimana corrente con 0 giorni utili
+    // E non è la settimana gara — caso limite improbabile)
+    if (sessions.length === 0) continue;
+
+    weeks.push({
+      theme: TEMPLATE_THEME[kind],
+      sessions,
+    });
+  }
+
+  // Garantisce almeno una settimana con la gara (paranoia)
+  if (weeks.length === 0 || !weeks[weeks.length - 1].sessions.some((s) => s.type === "race" && s.name === "Giorno gara")) {
+    weeks.push({ theme: TEMPLATE_THEME.taper, sessions: [raceDay] });
+  }
+
+  const shortPrep = numWeeks <= 3;
+  const veryShortPrep = totalDays < 14;
+
+  return {
+    weeks,
+    target: profile.targetTime,
+    adjustedEstimate: null,
+    shortPrep,
+    veryShortPrep,
+  };
 }
 
 export function findNextSession(plan: Plan, logs: WorkoutLog[]) {

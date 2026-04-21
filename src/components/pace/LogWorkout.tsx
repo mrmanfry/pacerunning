@@ -90,6 +90,15 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
       setData(newData);
       setAutoFlags(flags);
 
+      // Pattern qualitativi dal grafico (vision estesa)
+      const vp: VisualPatterns = {
+        hrPattern: ext.hrPattern ?? null,
+        paceStrategy: ext.paceStrategy ?? null,
+        observations: Array.isArray(ext.observations) ? ext.observations : [],
+      };
+      const hasVp = vp.hrPattern || vp.paceStrategy || (vp.observations && vp.observations.length > 0);
+      setVisualPatterns(hasVp ? vp : null);
+
       const filledCount = Object.keys(flags).length;
       if (filledCount === 0) {
         setExtractFailed(true);

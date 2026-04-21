@@ -981,11 +981,25 @@ export function getTypeBg(type: SessionType): string {
   return map[type] || "bg-stone-200";
 }
 
+// Parse YYYY-MM-DD as a local-midnight date (avoids UTC shift bugs).
+// Other inputs fall back to native Date parsing.
+function toLocalMidnight(input: string | Date): Date {
+  if (input instanceof Date) {
+    return new Date(input.getFullYear(), input.getMonth(), input.getDate());
+  }
+  const iso = input.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (iso) {
+    return new Date(+iso[1], +iso[2] - 1, +iso[3]);
+  }
+  const d = new Date(input);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
 export function daysBetween(fromISO: string | Date, toISO: string | Date): number {
-  const from = typeof fromISO === "string" ? new Date(fromISO) : fromISO;
-  const to = typeof toISO === "string" ? new Date(toISO) : toISO;
+  const from = toLocalMidnight(fromISO);
+  const to = toLocalMidnight(toISO);
   const ms = to.getTime() - from.getTime();
-  return Math.ceil(ms / 86400000);
+  return Math.round(ms / 86400000);
 }
 
 // Returns the most recently logged workout (by loggedAt), excluding skipped ones.

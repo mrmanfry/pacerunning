@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronRight, Mail, Lock } from "lucide-react";
+import { Link } from "react-router-dom";
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
@@ -9,11 +10,16 @@ const authSchema = z.object({
   password: z.string().min(6, { message: "Almeno 6 caratteri" }).max(100),
 });
 
+const emailOnlySchema = z.object({
+  email: z.string().trim().email({ message: "Email non valida" }).max(255),
+});
+
 export function AuthScreen() {
   const [mode, setMode] = useState<"signin" | "signup">("signup");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetSending, setResetSending] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,6 +50,30 @@ export function AuthScreen() {
       toast({ title: msg, variant: "destructive" });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    const parsed = emailOnlySchema.safeParse({ email });
+    if (!parsed.success) {
+      toast({ title: "Inserisci prima la tua email qui sopra", variant: "destructive" });
+      return;
+    }
+    setResetSending(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) throw error;
+      toast({
+        title: "Email inviata",
+        description: "Controlla la posta per il link di reset password.",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Errore nell'invio";
+      toast({ title: msg, variant: "destructive" });
+    } finally {
+      setResetSending(false);
     }
   };
 
@@ -96,6 +126,16 @@ export function AuthScreen() {
                 className="flex-1 bg-transparent outline-none text-paper placeholder:text-stone-600"
               />
             </div>
+            {mode === "signin" && (
+              <button
+                type="button"
+                onClick={handlePasswordReset}
+                disabled={resetSending}
+                className="mt-2 text-xs text-stone-400 underline hover:text-stone-200 disabled:opacity-50"
+              >
+                {resetSending ? "Invio in corso..." : "Password dimenticata?"}
+              </button>
+            )}
           </div>
 
           <div className="pt-4">
@@ -120,6 +160,9 @@ export function AuthScreen() {
         <p className="text-[11px] text-stone-500 mt-4">
           Creando un account accetti che i tuoi dati di allenamento siano salvati sul backend cifrato di PACE per
           permetterti di consultarli da più dispositivi. Puoi cancellarli in qualunque momento dalle impostazioni.
+          Vedi{" "}
+          <Link to="/privacy" className="underline">privacy</Link> e{" "}
+          <Link to="/terms" className="underline">termini</Link>.
         </p>
       </div>
     </div>

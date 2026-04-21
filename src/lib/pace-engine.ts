@@ -698,10 +698,19 @@ export function generatePlan(profile: Profile): Plan {
     const sessions: Session[] = [];
 
     if (isRaceWeek) {
-      // Sessioni di taper: pre-gara è prioritaria, poi easy
-      const taperPool: Session[] = [preRace, easyShort, easyShorter];
-      for (let i = 0; i < targetCount && i < taperPool.length; i++) {
-        sessions.push(taperPool[i]);
+      // Taper: easy all'inizio della settimana, pre-gara per ultima (più vicina alla gara),
+      // poi la gara in coda. Esempi:
+      //  targetCount=0 → [gara]
+      //  targetCount=1 → [pre-gara, gara]
+      //  targetCount=2 → [easy, pre-gara, gara]
+      //  targetCount=3 → [easy, easy, pre-gara, gara]
+      const easyPool: Session[] = [easyShort, easyShorter];
+      const easyCount = Math.max(0, targetCount - 1);
+      for (let i = 0; i < easyCount && i < easyPool.length; i++) {
+        sessions.push(easyPool[i]);
+      }
+      if (targetCount >= 1) {
+        sessions.push(preRace);
       }
       // sempre la gara in coda
       sessions.push(raceDay);

@@ -763,6 +763,11 @@ export function generatePlan(profile: Profile): Plan {
   const longBuildDuration = Math.min(120, baseLong + 10);
   const longIntensityDuration = Math.min(120, baseLong + 5);
 
+  // Contesto rationale costruito una volta e passato ai builder della library.
+  // Usa 0 settimane come default (per sessioni razionalizzate fuori dal loop calendar-aware).
+  // Le Week useranno un contesto specifico più sotto che include weeksToRace corretto.
+  const sessionCtx = buildRationaleContext(profile, 0, zones);
+
   // ---------- Session library (poi le selezioniamo per settimana) ----------
   const easyShort: Session = {
     name: "Corsa facile + allunghi",
@@ -775,6 +780,7 @@ export function generatePlan(profile: Profile): Plan {
       "Se riesci a parlare a frasi intere, probabilmente sei nell'intensità giusta",
     ],
     notes: 'Gli allenamenti percepiti come "troppo facili" spesso sono quelli che fanno più differenza nel tempo, contrariamente all\'intuizione.',
+    rationale: buildSessionRationale("easyShort", sessionCtx),
   };
 
   const easyContinuous: Session = {
@@ -786,6 +792,7 @@ export function generatePlan(profile: Profile): Plan {
       `50' continui a intensità leggera (${z2[0]}-${z2[1]} bpm)`,
       "Tieni un ritmo che permetta di respirare con il naso a tratti",
     ],
+    rationale: buildSessionRationale("easyContinuous", sessionCtx),
   };
 
   const easyShorter: Session = {
@@ -794,6 +801,7 @@ export function generatePlan(profile: Profile): Plan {
     duration: 40,
     targetHR: `${z2[0]}-${z2[1]}`,
     blocks: [`40' continui a intensità leggera (${z2[0]}-${z2[1]} bpm)`],
+    rationale: buildSessionRationale("easyShorter", sessionCtx),
   };
 
   const qualityMediumHigh: Session = {
@@ -808,6 +816,7 @@ export function generatePlan(profile: Profile): Plan {
       "10' di defaticamento lento",
     ],
     notes: "Lo sforzo percepito di riferimento per questo tipo di lavoro, secondo la letteratura amatoriale, è intorno a 7/10: impegnativo ma non massimale.",
+    rationale: buildSessionRationale("qualityMediumHigh", sessionCtx),
   };
 
   const qualityShortReps: Session = {
@@ -822,6 +831,7 @@ export function generatePlan(profile: Profile): Plan {
       "10' di defaticamento",
     ],
     notes: "Respirazione decisamente accelerata ma non al limite. Se non riesci a completare un blocco, rallentare è sempre un'opzione ragionevole.",
+    rationale: buildSessionRationale("qualityShortReps", sessionCtx),
   };
 
   const mediumProgressive: Session = {
@@ -834,6 +844,7 @@ export function generatePlan(profile: Profile): Plan {
       `25' a intensità che si sente ma è sostenibile (${z3[1]}-${z4[0]} bpm)`,
       "10' di defaticamento",
     ],
+    rationale: buildSessionRationale("mediumProgressive", sessionCtx),
   };
 
   const mediumContinuous: Session = {
@@ -845,6 +856,7 @@ export function generatePlan(profile: Profile): Plan {
       `Circa 40' di corsa continua a intensità sostenibile (${z3[1]}-${z4[0]} bpm)`,
       "Non deve essere faticosa come le ripetute, non facile come il lungo",
     ],
+    rationale: buildSessionRationale("mediumContinuous", sessionCtx),
   };
 
   const mediumProgressionRace: Session = {
@@ -857,6 +869,7 @@ export function generatePlan(profile: Profile): Plan {
       `20' progressivi fino a ritmo gara (${z3[1]}-${z4[0]} bpm)`,
       "10' di defaticamento",
     ],
+    rationale: buildSessionRationale("mediumProgressionRace", sessionCtx),
   };
 
   const longBase: Session = {
@@ -870,6 +883,7 @@ export function generatePlan(profile: Profile): Plan {
       "Se serve camminare brevi tratti, va bene",
     ],
     notes: "Il lungo lento è uno degli allenamenti più citati nella letteratura amatoriale per gare di resistenza.",
+    rationale: buildSessionRationale("longBase", sessionCtx),
   };
 
   const longBuild: Session = {
@@ -878,6 +892,7 @@ export function generatePlan(profile: Profile): Plan {
     duration: longBuildDuration,
     targetHR: `${z2[0]}-${z2[1] + 5}`,
     blocks: [`Circa ${longBuildDuration}' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`, "Porta acqua se fa caldo"],
+    rationale: buildSessionRationale("longBuild", sessionCtx),
   };
 
   const longIntensity: Session = {
@@ -889,6 +904,7 @@ export function generatePlan(profile: Profile): Plan {
       `Circa ${longIntensityDuration}' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
       "Possibile inserire 5' di ritmo medio verso metà percorso se le gambe rispondono bene",
     ],
+    rationale: buildSessionRationale("longIntensity", sessionCtx),
   };
 
   const racePaceShort: Session = {
@@ -903,6 +919,7 @@ export function generatePlan(profile: Profile): Plan {
       "10' di defaticamento",
     ],
     notes: "Familiarizza il corpo con la sensazione del ritmo gara.",
+    rationale: buildSessionRationale("racePaceShort", sessionCtx),
   };
 
   const preRace: Session = {
@@ -916,6 +933,7 @@ export function generatePlan(profile: Profile): Plan {
       "10' di defaticamento lento",
     ],
     notes: 'Questa sessione viene spesso descritta come un "promemoria" del ritmo, non un allenamento di carico.',
+    rationale: buildSessionRationale("preRace", sessionCtx),
   };
 
   const raceDay: Session = {
@@ -930,6 +948,7 @@ export function generatePlan(profile: Profile): Plan {
       `Ritmo ipotetico per ${profile.targetTime}' su ${profile.raceDistance || 10}km: ${paceFromTime(profile.targetTime, profile.raceDistance || 10)}/km`,
     ],
     notes: "Partire troppo forte è l'errore più comunemente segnalato nella letteratura amatoriale.",
+    rationale: buildSessionRationale("raceDay", sessionCtx),
   };
 
   // ---------- Selezione sessioni per template + numero target ----------
@@ -981,6 +1000,7 @@ export function generatePlan(profile: Profile): Plan {
     weeks.push({
       theme: TEMPLATE_THEME.taper,
       sessions: [raceDay],
+      rationale: buildWeekRationale("taper", 0, formatRaceDistanceLabelLocal(profile.raceDistance)),
     });
     return {
       weeks,
@@ -988,6 +1008,7 @@ export function generatePlan(profile: Profile): Plan {
       adjustedEstimate: null,
       shortPrep: true,
       veryShortPrep: true,
+      philosophy: buildPlanPhilosophy(buildRationaleContext(profile, 0, zones)),
     };
   }
 
@@ -1070,12 +1091,17 @@ export function generatePlan(profile: Profile): Plan {
     weeks.push({
       theme: TEMPLATE_THEME[kind],
       sessions,
+      rationale: buildWeekRationale(kind, weeksToRace, formatRaceDistanceLabelLocal(profile.raceDistance)),
     });
   }
 
   // Garantisce almeno una settimana con la gara (paranoia)
   if (weeks.length === 0 || !weeks[weeks.length - 1].sessions.some((s) => s.type === "race" && s.name === "Giorno gara")) {
-    weeks.push({ theme: TEMPLATE_THEME.taper, sessions: [raceDay] });
+    weeks.push({
+      theme: TEMPLATE_THEME.taper,
+      sessions: [raceDay],
+      rationale: buildWeekRationale("taper", 0, formatRaceDistanceLabelLocal(profile.raceDistance)),
+    });
   }
 
   const shortPrep = numWeeks <= 3;
@@ -1087,6 +1113,7 @@ export function generatePlan(profile: Profile): Plan {
     adjustedEstimate: null,
     shortPrep,
     veryShortPrep,
+    philosophy: buildPlanPhilosophy(buildRationaleContext(profile, numWeeks - 1, zones)),
   };
 }
 

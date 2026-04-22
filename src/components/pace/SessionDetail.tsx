@@ -83,6 +83,15 @@ export function SessionDetail({ session, profile, loggedData, recentAnalyses, su
       </div>
 
       <div className="p-6 space-y-5">
+        {!isCompleted && !isSkipped && suggestedSessionName && (
+          <div className="bg-stone-100 border border-stone-200 rounded-2xl p-4 flex gap-3">
+            <CheckCircle2 size={18} className="text-stone-500 flex-shrink-0 mt-0.5" />
+            <div className="text-xs text-stone-700 leading-relaxed">
+              Stai per loggare <strong>{s.name}</strong>. La sessione suggerita oggi era <strong>{suggestedSessionName}</strong>,
+              ma puoi farla quando vuoi — qualsiasi sessione della settimana è valida.
+            </div>
+          </div>
+        )}
         {isSkipped && (
           <div>
             <div className="mono-font text-xs tracking-widest text-stone-500 mb-3">▼ HAI SALTATO QUESTA SESSIONE</div>

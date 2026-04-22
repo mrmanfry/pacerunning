@@ -8,7 +8,7 @@ const corsHeaders = {
 
 // Bumpa questa stringa ogni volta che cambi il prompt o lo schema del tool.
 // Convenzione: vN-YYYY-MM-DD[-suffix]
-const PROMPT_VERSION = "v5-2026-04-22-segments";
+const PROMPT_VERSION = "v6-2026-04-22-segments-typeagnostic";
 const MODEL = "google/gemini-3-flash-preview";
 
 // ------------------------------------------------------------------
@@ -461,7 +461,7 @@ ISTRUZIONI ESECUTIVE:
 4. nextMove DEVE ancorarsi alla "Prossima sessione del piano" sopra (cita il nome esatto, non inventare un altro allenamento). Se manca, suggerisci liberamente.
 5. planAdjustment: usa la stima dai log e la confidenza. Se "low" o dati implausibili → shouldAdjust=false. Se "medium"/"high" e scostamento >3', presentalo come OSSERVAZIONE da amico.
 6. Se ci sono <visual_patterns>, integrali in technicalReading in modo descrittivo (vedi regole nel blocco).
-7. **Se ci sono <plannedSession> + <segments>**: applica <plan_vs_execution>. Leggi la sessione PER BLOCCHI, popola segmentReadings con un commento per ogni ripetuta confrontandola al target FC del piano. NON ridurre l'intensità alla media del totale.
+7. **Se nei <segments> ci sono ≥2 lap di tipo "interval"**: applica <plan_vs_execution> SEMPRE, anche se la sessione pianificata era easy/long/medium. Leggi per blocchi, popola segmentReadings con UNA entry per OGNI interval. Se il tipo pianificato non è "quality"/"freeform" ma trovi interval strutturati, dichiara la discrepanza all'inizio della technicalReading.
 8. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight segui <safety>.
 9. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
 }

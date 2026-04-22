@@ -37,12 +37,22 @@ type AutoFlags = {
   cadence?: boolean;
 };
 
+type FormData = {
+  duration: number | null;
+  distance: number | null;
+  hrAvg: number | null;
+  hrMax: number | null;
+  rpe: number;
+  cadence: string;
+  notes: string;
+};
+
 export function LogWorkout({ session, userId, onBack, onSave }: Props) {
-  const [data, setData] = useState({
-    duration: session?.data.duration || 45,
-    distance: 5,
-    hrAvg: 150,
-    hrMax: 170,
+  const [data, setData] = useState<FormData>({
+    duration: session?.data.duration ?? null,
+    distance: null,
+    hrAvg: null,
+    hrMax: null,
     rpe: 6,
     cadence: "",
     notes: "",
@@ -55,7 +65,15 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
   const [extractionMeta, setExtractionMeta] = useState<ExtractionMeta | null>(null);
 
   const MAX_IMAGES = 4;
-  const canSave = data.duration > 0 && data.distance > 0 && data.hrAvg > 0;
+  // User has uploaded screenshots but extraction hasn't populated anything yet
+  const screenshotsPendingExtraction =
+    imagePreviews.length > 0 && !extracting && !extractionMeta && !extractFailed;
+  const canSave =
+    !extracting &&
+    !screenshotsPendingExtraction &&
+    (data.duration ?? 0) > 0 &&
+    (data.distance ?? 0) > 0 &&
+    (data.hrAvg ?? 0) > 0;
 
   const handleScreenshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);

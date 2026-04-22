@@ -1046,9 +1046,18 @@ export function generatePlan(profile: Profile): Plan {
   // ---------- Selezione sessioni per template + numero target ----------
   // Ordine di priorità per template: la prima è la più caratterizzante.
   // Ne prendiamo `count` dall'inizio. Se count > base, aggiungiamo easy extra.
+  //
+  // Differenziato per distanza gara:
+  // - 10K (polarized): build mantiene mediumProgressive (poco volume serve)
+  // - 21K/42K (hybrid/pyramidal): in build mettiamo qualityMediumHigh (Z4 soglia)
+  //   in posizione 2, così le qualità entrano subito invece di aspettare
+  //   l'ultimo terzo del piano. Allinea il calendario alla PlanPhilosophy.
+  const isLongRace = raceDist >= 18; // HM o oltre
   const TEMPLATE_PRIORITY: Record<WeekTemplateKind, Session[]> = {
     base: [longBase, qualityMediumHigh, easyShort],
-    build: [longBuild, mediumProgressive, easyContinuous],
+    build: isLongRace
+      ? [longBuild, qualityMediumHigh, mediumContinuous, easyContinuous]
+      : [longBuild, mediumProgressive, easyContinuous],
     intensity: [qualityShortReps, longIntensity, mediumContinuous],
     specificity: [racePaceShort, mediumProgressionRace, easyShorter],
     taper: [], // gestito separatamente
@@ -1064,9 +1073,14 @@ export function generatePlan(profile: Profile): Plan {
 
   function selectSessions(kind: WeekTemplateKind, count: number): Session[] {
     if (count <= 0) return [];
-    const priority = TEMPLATE_PRIORITY[kind];
+    let priority = TEMPLATE_PRIORITY[kind];
+    // Safety: per i principianti, sostituisci ripetute Z5 con soglia Z4.
+    // I beginner non fanno VO₂max massimale, lavorano sulla soglia.
+    if (profile.level === "beginner") {
+      priority = priority.map((s) => (s === qualityShortReps ? qualityMediumHigh : s));
+    }
     if (count <= priority.length) return priority.slice(0, count);
-    // count > 3: aggiungiamo sessioni easy extra (corsa facile breve)
+    // count > priority.length: aggiungiamo sessioni easy extra (corsa facile breve)
     const extra = count - priority.length;
     const out = [...priority];
     for (let i = 0; i < extra; i++) {

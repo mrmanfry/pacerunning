@@ -431,6 +431,8 @@ Sintesi storico completo (${allLogsSummary?.totalSessions || 0} sessioni):
 
 ${nextBlock}
 
+${plannedSessionBlock}
+
 ${loadStateBlock}
 
 ${visualBlock}

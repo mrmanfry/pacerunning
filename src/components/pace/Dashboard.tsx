@@ -3,6 +3,7 @@ import type { Plan, Profile, WorkoutLog, Session } from "@/lib/pace-engine";
 import { computeZones, daysBetween, findNextSession, formatTime, getTypeStyles, paceFromTime } from "@/lib/pace-engine";
 import type { StoredAnalysis } from "@/lib/pace-repository";
 import { readinessLabel, readinessDescription, type LoadState } from "@/lib/load-model";
+import { RationaleBlock } from "./RationaleBlock";
 
 interface Props {
   profile: Profile;
@@ -255,6 +256,11 @@ export function Dashboard({
       )}
 
       <div className="p-6 pt-2">
+        {plan.philosophy && (
+          <div className="mb-4">
+            <RationaleBlock variant="plan" data={plan.philosophy} />
+          </div>
+        )}
         <div className="mono-font text-xs tracking-widest text-stone-500 mb-3">▼ PANORAMICA SPUNTI</div>
         <div className="space-y-4">
           {plan.weeks.map((week, wi) => (
@@ -263,6 +269,13 @@ export function Dashboard({
                 <div className="display-font text-2xl">SETTIMANA {wi + 1}</div>
                 <div className="mono-font text-xs text-stone-500">{week.theme}</div>
               </div>
+              {week.rationale && (
+                <div className="mb-4 bg-stone-50 rounded-2xl p-4 border border-stone-200">
+                  <div className="mono-font text-[10px] tracking-widest text-stone-500 mb-1">COSA COSTRUISCE</div>
+                  <p className="text-sm text-stone-800 font-semibold mb-2 leading-snug">{week.rationale.buildingBlock}</p>
+                  <p className="text-xs text-stone-600 leading-relaxed">{week.rationale.whyNow}</p>
+                </div>
+              )}
               <div className="space-y-2">
                 {week.sessions.map((s, si) => {
                   const log = logs.find((l) => l.weekIdx === wi && l.sessionIdx === si);

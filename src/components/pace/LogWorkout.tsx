@@ -248,11 +248,22 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
 
           {extractFailed && (
             <div className="mt-3 bg-amber-500/15 border border-amber-500/40 rounded-2xl p-3 text-xs text-amber-200 leading-relaxed">
-              ⚠️ L'AI non è riuscita a leggere i numeri dallo screenshot. <strong>Controlla i campi sotto e correggili a mano</strong> prima di salvare: i valori attuali sono solo placeholder.
+              ⚠️ L'AI non è riuscita a leggere i numeri dallo screenshot. <strong>Inserisci i campi sotto a mano</strong> prima di salvare.
             </div>
           )}
         </div>
       </div>
+
+      {(extracting || screenshotsPendingExtraction) && (
+        <div className="px-6 mb-4">
+          <div className="bg-amber-500/15 border border-amber-500/40 rounded-2xl p-3 text-xs text-amber-700 leading-relaxed flex items-center gap-2">
+            <Loader2 size={14} className="animate-spin flex-shrink-0" />
+            <span>
+              <strong>STO LEGGENDO LO SCREENSHOT</strong> — aspetta la fine, oppure togli l'immagine per inserire a mano.
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="px-6 space-y-6">
         <div className="grid grid-cols-2 gap-3">
@@ -330,10 +341,10 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
                 sessionIdx: session?.sessionIdx ?? null,
                 sessionType: (session?.data.type ?? "freeform") as SessionType,
                 sessionName: session?.data.name || "Allenamento libero",
-                duration: data.duration,
-                distance: data.distance,
-                hrAvg: data.hrAvg,
-                hrMax: data.hrMax,
+                duration: data.duration ?? 0,
+                distance: data.distance ?? 0,
+                hrAvg: data.hrAvg ?? 0,
+                hrMax: data.hrMax ?? null,
                 rpe: data.rpe,
                 cadence: data.cadence ? parseInt(data.cadence) : null,
                 notes: data.notes,
@@ -346,7 +357,15 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
             canSave ? "bg-ink text-paper hover:bg-ink-soft shadow-lg" : "bg-stone-200 text-stone-400"
           }`}
         >
-          <Sparkles size={18} /> SALVA E LEGGI
+          {extracting ? (
+            <>
+              <Loader2 size={18} className="animate-spin" /> ESTRAZIONE IN CORSO...
+            </>
+          ) : (
+            <>
+              <Sparkles size={18} /> SALVA E LEGGI
+            </>
+          )}
         </button>
       </div>
     </div>

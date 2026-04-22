@@ -1,5 +1,8 @@
-import { Check, Flame, Heart, Info, Wind, Zap, Loader2, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
-import type { Analysis } from "@/lib/pace-engine";
+import { useState } from "react";
+import { Check, Flame, Heart, Info, Wind, Zap, Loader2, Sparkles, TrendingDown, TrendingUp, ChevronDown } from "lucide-react";
+import type { Analysis, ExtractedSegment } from "@/lib/pace-engine";
+import { SegmentTimeline } from "./SegmentTimeline";
+import { HrSparkline } from "./HrSparkline";
 
 const iconMap = {
   wind: Wind,
@@ -18,7 +21,11 @@ interface Props {
   onIgnoreAdjustment?: () => void;
 }
 
+const VISIBLE_LIMIT = 4;
+
 export function AnalysisScreen({ analysis, loading, raceDistance, onContinue, onAcceptAdjustment, onIgnoreAdjustment }: Props) {
+  const [showAllSegments, setShowAllSegments] = useState(false);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-ink text-paper flex flex-col items-center justify-center grain px-6">
@@ -40,6 +47,27 @@ export function AnalysisScreen({ analysis, loading, raceDistance, onContinue, on
 
   const adj = analysis.planAdjustment;
   const showAdjust = adj?.shouldAdjust && typeof adj?.newTargetEstimate === "number";
+
+  // Filter segments: only interval + recovery, drop warmup/cooldown/steady/other
+  const ew = analysis.extractedWorkout;
+  const allFilteredSegments: ExtractedSegment[] = (ew?.segments ?? []).filter(
+    (s) => s.type === "interval" || s.type === "recovery"
+  );
+  const showAccordion = allFilteredSegments.length > VISIBLE_LIMIT;
+  const visibleSegments = showAccordion && !showAllSegments
+    ? allFilteredSegments.slice(0, VISIBLE_LIMIT)
+    : allFilteredSegments;
+  const hiddenCount = allFilteredSegments.length - VISIBLE_LIMIT;
+
+  // Filter readings to interval segments only (drop reading on recovery)
+  const intervalIdxs = new Set(
+    (ew?.segments ?? []).filter((s) => s.type === "interval").map((s) => s.idx)
+  );
+  const filteredReadings = (analysis.segmentReadings ?? []).filter((r) => intervalIdxs.has(r.segmentIdx));
+
+  const kmSplits = ew?.kmSplits ?? [];
+  const hrSeries = ew?.hrSeries;
+  const hrPattern = ew?.visualPatterns?.hrPattern;
 
   return (
     <div className="min-h-screen bg-ink text-paper pb-28 grain">
@@ -73,6 +101,59 @@ export function AnalysisScreen({ analysis, loading, raceDistance, onContinue, on
             <div className="mono-font text-xs tracking-widest mb-2 text-stone-400">OSSERVAZIONE</div>
             <div className="text-lg font-bold mb-2">{analysis.verdictTitle}</div>
             <div className="text-sm text-stone-300 leading-relaxed">{analysis.verdictText}</div>
+          </div>
+        )}
+
+        {/* Segment timeline (interval + recovery only, accordion if >4) */}
+        {allFilteredSegments.length > 0 && (
+          <div>
+            <div className="mono-font text-xs tracking-widest text-stone-400 mb-3">
+              ▼ BLOCCHI DELL'ALLENAMENTO
+            </div>
+            <SegmentTimeline segments={visibleSegments} segmentReadings={filteredReadings} />
+            {showAccordion && (
+              <button
+                onClick={() => setShowAllSegments((v) => !v)}
+                className="mt-2 w-full text-xs mono-font tracking-widest text-stone-400 hover:text-signal transition-colors py-2 flex items-center justify-center gap-2"
+              >
+                {showAllSegments ? "MOSTRA MENO" : `MOSTRA ALTRE ${hiddenCount} RIPETUTE`}
+                <ChevronDown
+                  size={14}
+                  className={`transition-transform ${showAllSegments ? "rotate-180" : ""}`}
+                />
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* HR sparkline */}
+        {hrSeries && hrSeries.points && hrSeries.points.length >= 6 && (
+          <HrSparkline hrSeries={hrSeries} hrPattern={hrPattern} />
+        )}
+
+        {/* Km splits table */}
+        {kmSplits.length > 0 && (
+          <div>
+            <div className="mono-font text-xs tracking-widest text-stone-400 mb-3">▼ PARZIALI PER KM</div>
+            <div className="bg-stone-800 border border-stone-700 rounded-2xl overflow-hidden">
+              <div className="grid grid-cols-3 mono-font text-[10px] tracking-widest text-stone-400 px-4 py-2 bg-stone-900 border-b border-stone-700">
+                <span>KM</span>
+                <span className="text-right">PACE</span>
+                <span className="text-right">FC</span>
+              </div>
+              {kmSplits.map((k, i) => (
+                <div
+                  key={i}
+                  className={`grid grid-cols-3 mono-font text-xs px-4 py-2 ${
+                    i < kmSplits.length - 1 ? "border-b border-stone-700/60" : ""
+                  }`}
+                >
+                  <span className="text-stone-300">{k.km}</span>
+                  <span className="text-right text-paper font-bold">{formatPace(k.paceSecPerKm)}</span>
+                  <span className="text-right text-signal">{k.hrAvg != null ? `${k.hrAvg}` : "—"}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -224,6 +305,12 @@ function Stat({ label, value, unit }: { label: string; value: string | number; u
 function formatRaceDistanceLabel(d: number | undefined | null): string {
   const v = d && d > 0 ? d : 10;
   if (Number.isInteger(v)) return `${v}K`;
-  // 21.097 → 21K, 42.195 → 42K (chip stays compact)
   return `${Math.round(v)}K`;
+}
+
+function formatPace(secPerKm: number | null | undefined): string {
+  if (secPerKm == null || !isFinite(secPerKm) || secPerKm <= 0) return "—";
+  const m = Math.floor(secPerKm / 60);
+  const s = Math.round(secPerKm % 60);
+  return `${m}'${String(s).padStart(2, "0")}"/km`;
 }

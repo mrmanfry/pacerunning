@@ -174,18 +174,41 @@ export function SessionDetail({ session, profile, loggedData, recentAnalyses, su
                         {formatLoggedDate(a.createdAt)}
                       </span>
                     </div>
-                    {a.nextMove && (
+                    {a.technicalReading && (
                       <div
-                        className={`text-sm leading-relaxed ${isCurrent ? "text-paper" : "text-stone-800"}`}
+                        className={`text-sm leading-relaxed mb-2 ${isCurrent ? "text-paper" : "text-stone-800"}`}
                       >
-                        {a.nextMove}
+                        {a.technicalReading}
                       </div>
                     )}
-                    {!a.nextMove && a.sessionHighlight && (
+                    {a.sessionHighlight && (
                       <div
-                        className={`text-sm leading-relaxed ${isCurrent ? "text-paper" : "text-stone-800"}`}
+                        className={`text-xs leading-relaxed pt-2 border-t ${
+                          isCurrent ? "text-stone-300 border-stone-700" : "text-stone-600 border-stone-200"
+                        }`}
                       >
+                        <span className={`mono-font tracking-widest text-[9px] block mb-1 ${isCurrent ? "text-signal" : "text-stone-500"}`}>
+                          HIGHLIGHT
+                        </span>
                         {a.sessionHighlight}
+                      </div>
+                    )}
+                    {!a.technicalReading && !a.sessionHighlight && a.nextMove && (
+                      <div className={`text-xs italic ${isCurrent ? "text-stone-400" : "text-stone-500"}`}>
+                        Lettura non disponibile per questa sessione.
+                      </div>
+                    )}
+                    {isCurrent && a.segmentReadings && a.segmentReadings.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-stone-700">
+                        <div className="mono-font tracking-widest text-[9px] text-signal mb-2">BLOCCHI</div>
+                        <div className="space-y-1.5">
+                          {a.segmentReadings.slice(0, 6).map((sr, idx) => (
+                            <div key={idx} className="text-xs text-stone-200 leading-relaxed">
+                              <span className="mono-font text-signal mr-2">#{sr.segmentIdx}</span>
+                              {sr.comment}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>

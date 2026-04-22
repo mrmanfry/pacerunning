@@ -461,8 +461,9 @@ ISTRUZIONI ESECUTIVE:
 4. nextMove DEVE ancorarsi alla "Prossima sessione del piano" sopra (cita il nome esatto, non inventare un altro allenamento). Se manca, suggerisci liberamente.
 5. planAdjustment: usa la stima dai log e la confidenza. Se "low" o dati implausibili → shouldAdjust=false. Se "medium"/"high" e scostamento >3', presentalo come OSSERVAZIONE da amico.
 6. Se ci sono <visual_patterns>, integrali in technicalReading in modo descrittivo (vedi regole nel blocco).
-7. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight segui <safety>.
-8. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
+7. **Se ci sono <plannedSession> + <segments>**: applica <plan_vs_execution>. Leggi la sessione PER BLOCCHI, popola segmentReadings con un commento per ogni ripetuta confrontandola al target FC del piano. NON ridurre l'intensità alla media del totale.
+8. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight segui <safety>.
+9. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
 }
 
 function sanitizeOutput(parsed: any) {

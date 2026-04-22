@@ -1,0 +1,4 @@
+ALTER TABLE public.profiles 
+  ADD COLUMN IF NOT EXISTS weekly_volume INTEGER NULL,
+  ADD COLUMN IF NOT EXISTS recent_long_run INTEGER NULL,
+  ADD COLUMN IF NOT EXISTS current_best_estimated BOOLEAN NOT NULL DEFAULT false;

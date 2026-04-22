@@ -179,14 +179,14 @@ Deno.serve(async (req) => {
     const userId = userData.user.id;
 
     const body = await req.json();
-    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout } = body || {};
+    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, currentPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout } = body || {};
     if (!computed || !log || !profile) return json({ error: "Invalid payload" }, 400);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return json({ error: "AI not configured" }, 500);
 
     const userPrompt = buildUserPrompt({
-      computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout,
+      computed, log, profile, recentSameType, allLogsSummary, nextPlanned, currentPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout,
     });
 
     const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -324,7 +324,7 @@ Deno.serve(async (req) => {
 });
 
 function buildUserPrompt(args: any): string {
-  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout } = args;
+  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, currentPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout } = args;
   const recent = (recentSameType || [])
     .map(
       (r: any, i: number) =>

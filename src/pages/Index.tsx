@@ -556,17 +556,25 @@ const Index = () => {
           />
         )}
 
-        {screen === "session" && selectedSession && profile && (
-          <SessionDetail
-            session={selectedSession}
-            profile={profile}
-            loggedData={selectedLoggedData}
-            recentAnalyses={recentAnalyses}
-            onBack={() => setScreen("dashboard")}
-            onLog={() => setScreen("logWorkout")}
-            onSkip={skipSession}
-          />
-        )}
+        {screen === "session" && selectedSession && profile && (() => {
+          const suggested = plan ? findNextSession(plan, logs) : null;
+          const isSuggested =
+            !!suggested &&
+            suggested.weekIdx === selectedSession.weekIdx &&
+            suggested.sessionIdx === selectedSession.sessionIdx;
+          return (
+            <SessionDetail
+              session={selectedSession}
+              profile={profile}
+              loggedData={selectedLoggedData}
+              recentAnalyses={recentAnalyses}
+              suggestedSessionName={!isSuggested && suggested ? suggested.data.name : null}
+              onBack={() => setScreen("dashboard")}
+              onLog={() => setScreen("logWorkout")}
+              onSkip={skipSession}
+            />
+          );
+        })()}
 
         {screen === "logWorkout" && (
           <LogWorkout

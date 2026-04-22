@@ -186,13 +186,35 @@ export async function insertLog(userId: string, log: WorkoutLog): Promise<{ id: 
 }
 
 // ---------- Storage: workout screenshots ----------
+const MIME_BY_EXT: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  heic: "image/heic",
+  heif: "image/heif",
+  gif: "image/gif",
+};
+
 export async function uploadWorkoutScreenshot(userId: string, file: File): Promise<string> {
+  // Force lowercase extension (iOS often produces .PNG / .HEIC)
   const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-  const path = `${userId}/${Date.now()}.${ext}`;
+  const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+
+  // Infer MIME if browser left it empty or non-image (common with .PNG uppercase on some platforms)
+  let contentType = file.type;
+  if (!contentType || !contentType.startsWith("image/")) {
+    contentType = MIME_BY_EXT[ext] || "application/octet-stream";
+  }
+
   const { error } = await supabase.storage
     .from("workout-screenshots")
-    .upload(path, file, { contentType: file.type, upsert: false });
-  if (error) throw error;
+    .upload(path, file, { contentType, upsert: false });
+  if (error) {
+    const status = (error as any).statusCode ?? (error as any).status ?? "?";
+    const msg = (error as any).message || String(error);
+    throw new Error(`Storage ${status}: ${msg}`);
+  }
   return path;
 }
 

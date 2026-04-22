@@ -18,12 +18,14 @@ interface Props {
   profile: Profile;
   loggedData?: WorkoutLog;
   recentAnalyses?: StoredAnalysis[];
+  /** If set, the system was suggesting a different session — name shown in info banner. */
+  suggestedSessionName?: string | null;
   onBack: () => void;
   onLog: () => void;
   onSkip?: (reason: string) => Promise<void> | void;
 }
 
-export function SessionDetail({ session, profile, loggedData, recentAnalyses, onBack, onLog, onSkip }: Props) {
+export function SessionDetail({ session, profile, loggedData, recentAnalyses, suggestedSessionName, onBack, onLog, onSkip }: Props) {
   const zones = computeZones(profile, session.data.type);
   const s = session.data;
   const isCompleted = !!loggedData;
@@ -81,6 +83,15 @@ export function SessionDetail({ session, profile, loggedData, recentAnalyses, on
       </div>
 
       <div className="p-6 space-y-5">
+        {!isCompleted && !isSkipped && suggestedSessionName && (
+          <div className="bg-stone-100 border border-stone-200 rounded-2xl p-4 flex gap-3">
+            <CheckCircle2 size={18} className="text-stone-500 flex-shrink-0 mt-0.5" />
+            <div className="text-xs text-stone-700 leading-relaxed">
+              Stai per loggare <strong>{s.name}</strong>. La sessione suggerita oggi era <strong>{suggestedSessionName}</strong>,
+              ma puoi farla quando vuoi — qualsiasi sessione della settimana è valida.
+            </div>
+          </div>
+        )}
         {isSkipped && (
           <div>
             <div className="mono-font text-xs tracking-widest text-stone-500 mb-3">▼ HAI SALTATO QUESTA SESSIONE</div>

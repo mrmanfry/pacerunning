@@ -8,7 +8,7 @@ const corsHeaders = {
 
 // Bumpa questa stringa ogni volta che cambi il prompt o lo schema del tool.
 // Convenzione: vN-YYYY-MM-DD[-suffix]
-const PROMPT_VERSION = "v4-2025-04-21-segments";
+const PROMPT_VERSION = "v5-2026-04-22-segments";
 const MODEL = "google/gemini-3-flash-preview";
 
 // ------------------------------------------------------------------
@@ -120,7 +120,21 @@ Se arrivano <kmSplits> E sessione "long"/"easy":
 In segmentReadings: una entry SOLO per i segmenti con qualcosa di interessante da dire (max 8). Frasi brevi (max 25 parole).
 Esempio: { segmentIdx: 2, comment: "R1 dentro target, FC pulita" }.
 Se nulla di rilevante: segmentReadings = [].
-</segment_analysis>`;
+</segment_analysis>
+
+<plan_vs_execution>
+QUESTO È IL BLOCCO PIÙ IMPORTANTE quando arrivano <plannedSession> + <segments>.
+
+Regola assoluta: se la sessione pianificata aveva BLOCCHI strutturati (riscaldamento, ripetute, recuperi, defaticamento) E nei segments leggi i lap effettivi, NON RIDURRE l'analisi alla media del totale.
+
+- Nella technicalReading, leggi la sessione PER BLOCCHI: come è andato il riscaldamento, come sono andate le ripetute, come sono andati i recuperi. Non dire "intensità leggera, hai corso a Z2" guardando solo la media: la media include riscaldamento e recuperi che SCHIACCIANO i numeri.
+- Per ogni ripetuta (segments di tipo "interval"), confronta la FC media e il passo con il target indicato in <plannedSession>. Esempio: se il piano dice "5 blocchi di 3' a 169-179 bpm" e R1 è 3'02" a 174 bpm, dillo esplicitamente: "R1 dentro banda FC, durata centrata".
+- In segmentReadings popola UNA entry per ogni ripetuta (interval) e per i recuperi degni di nota. Frasi brevissime, descrittive, max 25 parole.
+- Se i blocchi della sessione pianificata NON tornano coi segments (es. piano = 5 ripetute, segments = 3) dichiaralo da amico in technicalReading: "Nei dati vedo solo 3 blocchi veloci, non 5: hai chiuso prima o lo screenshot non li mostra tutti?".
+- NON usare la media totale per giudicare l'intensità di una sessione di qualità. Per le qualità, l'intensità si legge sulle ripetute.
+
+Se invece NON ci sono <segments> (solo totali e kmSplits), commenta sui kmSplits per derive/crisi e di' onestamente che non hai i lap per giudicare blocco per blocco.
+</plan_vs_execution>
 
 const FORBIDDEN_WORDS = [
   "sindrome",

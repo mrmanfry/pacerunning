@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronRight, AlertTriangle, Info, CalendarIcon } from "lucide-react";
 import type { Profile } from "@/lib/pace-engine";
-import { daysBetween } from "@/lib/pace-engine";
+import { daysBetween, estimateCurrentBestFromLevel } from "@/lib/pace-engine";
 
 interface Props {
   onComplete: (p: Profile) => void;
@@ -26,7 +26,6 @@ function defaultRaceDate(): string {
 
 function formatDist(d: number): string {
   if (Number.isInteger(d)) return String(d);
-  // 21.097 → "21" for short labels
   return String(Math.round(d));
 }
 
@@ -50,8 +49,12 @@ export function Onboarding({ onComplete }: Props) {
     level: "intermediate",
     raceDistance: 10,
     hrRest: null,
+    weeklyVolume: 20,
+    recentLongRun: 60,
+    currentBestEstimated: false,
   });
   const [customDistance, setCustomDistance] = useState<string>("");
+  const [dontKnowBest, setDontKnowBest] = useState(false);
   const isPresetDistance = DISTANCE_PRESETS.some((p) => Math.abs(p.v - data.raceDistance) < 0.001);
 
   const showAgeWarning = data.age >= 65;
@@ -76,6 +79,41 @@ export function Onboarding({ onComplete }: Props) {
       setData({ ...data, raceDistance: n });
     }
   };
+
+  const onToggleDontKnow = (next: boolean) => {
+    setDontKnowBest(next);
+    if (next) {
+      // Stima conservativa basata su livello + volume
+      const estimated = estimateCurrentBestFromLevel(data.level, data.weeklyVolume, data.raceDistance);
+      setData({ ...data, currentBest: estimated, currentBestEstimated: true });
+    } else {
+      setData({ ...data, currentBestEstimated: false });
+    }
+  };
+
+  // Quando level/volume/distance cambiano e l'utente è in modalità "non lo so",
+  // ricalcoliamo la stima.
+  const updateLevelOrVolume = (patch: Partial<Profile>) => {
+    const merged = { ...data, ...patch };
+    if (dontKnowBest) {
+      merged.currentBest = estimateCurrentBestFromLevel(merged.level, merged.weeklyVolume, merged.raceDistance);
+      merged.currentBestEstimated = true;
+    }
+    setData(merged);
+  };
+
+  // Validazione: obiettivo troppo ambizioso vs volume attuale?
+  // Soglia conservativa: se la gara è ≥10K e volume <15km/sett, alert.
+  // Se la gara è ≥21K e volume <25km/sett, alert.
+  let volumeWarning: string | null = null;
+  const vol = data.weeklyVolume ?? 0;
+  if (data.raceDistance >= 21 && vol < 25) {
+    volumeWarning = `Stai puntando a una mezza maratona (21K) con un volume attuale di circa ${vol} km/sett. È fattibile ma molto ambizioso: il piano sarà conservativo, ascolta il corpo e considera di rivedere l'obiettivo se la fatica si accumula.`;
+  } else if (data.raceDistance >= 10 && data.raceDistance < 21 && vol < 15) {
+    volumeWarning = `Volume attuale (~${vol} km/sett) abbastanza basso per puntare a ${formatDist(data.raceDistance)}K. Il piano sarà progressivo ma conservativo.`;
+  } else if (data.raceDistance >= 30 && vol < 40) {
+    volumeWarning = `Una maratona con ${vol} km/sett di volume attuale è un obiettivo molto ambizioso. Valuta se non sia meglio puntare a una mezza prima.`;
+  }
 
   let prepHint = "";
   let prepHintTone: "ok" | "warn" | "alert" = "ok";
@@ -133,16 +171,68 @@ export function Onboarding({ onComplete }: Props) {
       ),
     },
     {
-      title: "LIVELLO\nATTUALE",
-      subtitle: `Qual è il tuo tempo recente sui ${formatDist(data.raceDistance)} km (anche una stima va bene)`,
+      title: "LE TUE\nABITUDINI",
+      subtitle: "Per costruire un piano realistico partendo da quello che già fai",
       content: (
-        <div className="space-y-6">
-          <NumberInput
-            label={`TEMPO ${formatDist(data.raceDistance)}K RECENTE`}
-            value={data.currentBest}
-            onChange={(v) => setData({ ...data, currentBest: v })}
-            unit="minuti"
-          />
+        <div className="space-y-7">
+          <div>
+            <div className="mono-font text-xs tracking-widest text-stone-500 mb-2">
+              KM A SETTIMANA (DI SOLITO)
+            </div>
+            <div className="flex items-baseline gap-3 border-b-2 border-ink pb-2">
+              <input
+                type="number"
+                min="0"
+                max="120"
+                value={data.weeklyVolume ?? 0}
+                onChange={(e) => updateLevelOrVolume({ weeklyVolume: Math.max(0, parseInt(e.target.value) || 0) })}
+                className="display-font text-5xl bg-transparent outline-none w-full"
+              />
+              <span className="mono-font text-sm text-stone-400">km/sett</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="80"
+              step="5"
+              value={Math.min(80, data.weeklyVolume ?? 0)}
+              onChange={(e) => updateLevelOrVolume({ weeklyVolume: parseInt(e.target.value) })}
+              className="w-full mt-3 accent-ink"
+            />
+            <div className="mt-2 text-xs text-stone-500 leading-relaxed">
+              Quanti km corri di solito a settimana negli ultimi mesi (anche zero va bene se stai ricominciando).
+            </div>
+          </div>
+
+          <div>
+            <div className="mono-font text-xs tracking-widest text-stone-500 mb-2">
+              LUNGO PIÙ LUNGO (ULTIME 4 SETTIMANE)
+            </div>
+            <div className="flex items-baseline gap-3 border-b-2 border-ink pb-2">
+              <input
+                type="number"
+                min="0"
+                max="240"
+                value={data.recentLongRun ?? 0}
+                onChange={(e) => setData({ ...data, recentLongRun: Math.max(0, parseInt(e.target.value) || 0) })}
+                className="display-font text-5xl bg-transparent outline-none w-full"
+              />
+              <span className="mono-font text-sm text-stone-400">minuti</span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="180"
+              step="5"
+              value={Math.min(180, data.recentLongRun ?? 0)}
+              onChange={(e) => setData({ ...data, recentLongRun: parseInt(e.target.value) })}
+              className="w-full mt-3 accent-ink"
+            />
+            <div className="mt-2 text-xs text-stone-500 leading-relaxed">
+              Durata in minuti della tua corsa più lunga di recente. Sarà il punto di partenza dei lunghi del tuo piano.
+            </div>
+          </div>
+
           <SegmentedControl
             label="ESPERIENZA"
             options={[
@@ -151,12 +241,61 @@ export function Onboarding({ onComplete }: Props) {
               { v: "advanced", l: "Esperto" },
             ]}
             value={data.level}
-            onChange={(v) => setData({ ...data, level: v as Profile["level"] })}
+            onChange={(v) => updateLevelOrVolume({ level: v as Profile["level"] })}
           />
           <div className="bg-stone-100 rounded-2xl p-4 flex gap-3">
             <Info size={18} className="text-stone-500 flex-shrink-0 mt-0.5" />
             <div className="text-xs text-stone-600 leading-relaxed">
-              Questi dati servono solo per mostrarti spunti più pertinenti, non sono una valutazione del tuo livello sportivo.
+              Questi dati ci servono per dimensionare il volume e la difficoltà del piano. Più sono onesti, più il piano è realistico.
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: "LIVELLO\nATTUALE",
+      subtitle: dontKnowBest
+        ? "Lo stimiamo dai dati che ci hai dato"
+        : `Qual è il tuo tempo recente sui ${formatDist(data.raceDistance)} km (anche una stima va bene)`,
+      content: (
+        <div className="space-y-6">
+          {!dontKnowBest && (
+            <NumberInput
+              label={`TEMPO ${formatDist(data.raceDistance)}K RECENTE`}
+              value={data.currentBest}
+              onChange={(v) => setData({ ...data, currentBest: v, currentBestEstimated: false })}
+              unit="minuti"
+            />
+          )}
+          {dontKnowBest && (
+            <div className="bg-stone-100 rounded-2xl p-4">
+              <div className="mono-font text-xs tracking-widest text-stone-500 mb-2">
+                TEMPO {formatDist(data.raceDistance)}K STIMATO
+              </div>
+              <div className="display-font text-5xl text-stone-800 mb-1">{data.currentBest}'</div>
+              <div className="text-xs text-stone-600 leading-relaxed">
+                Stima conservativa basata su livello e volume settimanale. Potrai aggiornarla nelle impostazioni dopo le prime sessioni.
+              </div>
+            </div>
+          )}
+          <label className="flex items-start gap-3 cursor-pointer select-none p-3 -mx-3 rounded-xl hover:bg-stone-50">
+            <input
+              type="checkbox"
+              checked={dontKnowBest}
+              onChange={(e) => onToggleDontKnow(e.target.checked)}
+              className="mt-1 w-4 h-4 accent-ink"
+            />
+            <div className="text-sm text-stone-700 leading-snug">
+              <div className="font-semibold">Non ho mai corso questa distanza / non ricordo il tempo</div>
+              <div className="text-xs text-stone-500 mt-0.5">
+                Stimeremo il tempo dai dati che ci hai già dato (livello + volume).
+              </div>
+            </div>
+          </label>
+          <div className="bg-stone-100 rounded-2xl p-4 flex gap-3">
+            <Info size={18} className="text-stone-500 flex-shrink-0 mt-0.5" />
+            <div className="text-xs text-stone-600 leading-relaxed">
+              Questo dato serve solo per calcolare i pace target indicativi del piano, non è una valutazione del tuo livello sportivo.
             </div>
           </div>
         </div>
@@ -213,7 +352,6 @@ export function Onboarding({ onComplete }: Props) {
               ))}
               <button
                 onClick={() => {
-                  // switch to custom mode: clear preset selection, prefill with current value
                   setCustomDistance(String(data.raceDistance));
                 }}
                 className={`flex-1 py-2.5 rounded-full text-sm font-semibold transition-all ${
@@ -239,6 +377,13 @@ export function Onboarding({ onComplete }: Props) {
             )}
           </div>
 
+          {volumeWarning && (
+            <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 flex gap-3">
+              <AlertTriangle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-900 leading-relaxed">{volumeWarning}</div>
+            </div>
+          )}
+
           <NumberInput
             label={`TEMPO TARGET SU ${formatDist(data.raceDistance)}K`}
             value={data.targetTime}
@@ -262,7 +407,8 @@ export function Onboarding({ onComplete }: Props) {
 
   const current = steps[step];
   const progress = ((step + 1) / steps.length) * 100;
-  const canAdvance = step !== 2 || (data.raceDate && days > 0);
+  const lastStep = steps.length - 1;
+  const canAdvance = step !== lastStep || (!!data.raceDate && days > 0);
 
   return (
     <div className="min-h-screen bg-paper flex flex-col">
@@ -277,18 +423,26 @@ export function Onboarding({ onComplete }: Props) {
         <p className="text-stone-500 text-sm">{current.subtitle}</p>
       </div>
       <div className="flex-1 px-6">{current.content}</div>
-      <div className="p-6">
+      <div className="p-6 flex gap-3">
+        {step > 0 && (
+          <button
+            onClick={() => setStep(step - 1)}
+            className="px-6 py-5 rounded-full font-bold tracking-wide bg-stone-200 text-stone-700 hover:bg-stone-300 active:scale-[0.98] transition-all"
+          >
+            INDIETRO
+          </button>
+        )}
         <button
           disabled={!canAdvance}
           onClick={() => {
-            if (step < steps.length - 1) setStep(step + 1);
+            if (step < lastStep) setStep(step + 1);
             else onComplete(data);
           }}
-          className={`w-full py-5 rounded-full font-bold tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${
+          className={`flex-1 py-5 rounded-full font-bold tracking-wide flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${
             canAdvance ? "bg-ink text-paper hover:bg-ink-soft" : "bg-stone-300 text-stone-500"
           }`}
         >
-          {step < steps.length - 1 ? "AVANTI" : "CREA IL DIARIO"} <ChevronRight size={20} />
+          {step < lastStep ? "AVANTI" : "CREA IL DIARIO"} <ChevronRight size={20} />
         </button>
       </div>
     </div>

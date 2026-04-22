@@ -134,7 +134,7 @@ Regola assoluta: se la sessione pianificata aveva BLOCCHI strutturati (riscaldam
 - NON usare la media totale per giudicare l'intensità di una sessione di qualità. Per le qualità, l'intensità si legge sulle ripetute.
 
 Se invece NON ci sono <segments> (solo totali e kmSplits), commenta sui kmSplits per derive/crisi e di' onestamente che non hai i lap per giudicare blocco per blocco.
-</plan_vs_execution>
+</plan_vs_execution>`;
 
 const FORBIDDEN_WORDS = [
   "sindrome",

@@ -18,12 +18,14 @@ interface Props {
   profile: Profile;
   loggedData?: WorkoutLog;
   recentAnalyses?: StoredAnalysis[];
+  /** If set, the system was suggesting a different session — name shown in info banner. */
+  suggestedSessionName?: string | null;
   onBack: () => void;
   onLog: () => void;
   onSkip?: (reason: string) => Promise<void> | void;
 }
 
-export function SessionDetail({ session, profile, loggedData, recentAnalyses, onBack, onLog, onSkip }: Props) {
+export function SessionDetail({ session, profile, loggedData, recentAnalyses, suggestedSessionName, onBack, onLog, onSkip }: Props) {
   const zones = computeZones(profile, session.data.type);
   const s = session.data;
   const isCompleted = !!loggedData;

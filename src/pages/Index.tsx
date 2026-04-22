@@ -117,7 +117,26 @@ const Index = () => {
         );
         setConsentsAccepted(okConsents);
         if (p) setProfile(p);
-        if (pl) setPlan(pl);
+        if (pl) {
+          // Migration on-the-fly: se il piano è stato salvato prima
+          // dell'introduzione del rationale, lo rigeneriamo mantenendo
+          // la stima aggiornata già calcolata.
+          if (!pl.philosophy && p) {
+            const regenerated = generatePlan(p);
+            const migrated: Plan = {
+              ...regenerated,
+              adjustedEstimate: pl.adjustedEstimate,
+              estimateLow: pl.estimateLow,
+              estimateHigh: pl.estimateHigh,
+              estimateConfidence: pl.estimateConfidence,
+              target: pl.target,
+            };
+            setPlan(migrated);
+            savePlan(user.id, migrated).catch((err) => console.error("Plan migration failed:", err));
+          } else {
+            setPlan(pl);
+          }
+        }
         setLogs(lg);
         setLastAnalysis(la);
         setRecentAnalyses(ra);

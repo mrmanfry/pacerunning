@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { Profile, Session, WorkoutLog } from "@/lib/pace-engine";
 import { computeZones, getTypeBg } from "@/lib/pace-engine";
 import type { StoredAnalysis } from "@/lib/pace-repository";
+import { RationaleBlock } from "./RationaleBlock";
 import {
   Dialog,
   DialogContent,
@@ -216,6 +217,10 @@ export function SessionDetail({ session, profile, loggedData, recentAnalyses, su
               })}
             </div>
           </div>
+        )}
+
+        {s.rationale && (
+          <RationaleBlock variant="session" data={s.rationale} />
         )}
 
         <div>

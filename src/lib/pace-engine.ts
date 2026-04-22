@@ -7,6 +7,43 @@ export type Sex = "M" | "F";
 export type Level = "beginner" | "intermediate" | "advanced";
 export type SessionType = "easy" | "quality" | "medium" | "long" | "race" | "freeform";
 
+/**
+ * Rationale didattico di una sessione/settimana/piano.
+ * Campi opzionali per retrocompatibilità con piani già salvati su DB.
+ *
+ * Struttura a 3 slot pensata per essere "scansionabile": l'utente può
+ * fermarsi al goal (1 riga) o leggere why + howToExecute se vuole capire
+ * il razionale fisiologico e come auto-regolarsi durante la sessione.
+ */
+export interface SessionRationale {
+  /** 1 frase: obiettivo fisiologico primario della sessione */
+  goal: string;
+  /** 2-4 frasi: perché questa sessione serve per la tua distanza gara */
+  why: string;
+  /** 2-4 frasi: come riconoscere in corso se la sessione sta funzionando */
+  howToExecute: string;
+}
+
+export interface WeekRationale {
+  /** 1 frase: cosa costruisce questa settimana nel macrociclo */
+  buildingBlock: string;
+  /** 2-3 frasi: perché questa settimana adesso, nel punto del piano in cui sei */
+  whyNow: string;
+  /** 1-2 frasi: a cosa prestare attenzione durante la settimana */
+  expectation: string;
+}
+
+export interface PlanPhilosophy {
+  /** Nome del modello TID applicato */
+  tidModel: "polarized" | "pyramidal" | "hybrid";
+  /** Titolo breve: "Modello Polarizzato 80/5/15" */
+  title: string;
+  /** 3-5 frasi: spiegazione del perché usiamo questo modello per la tua distanza */
+  explanation: string;
+  /** 1-2 frasi: cosa noterà l'utente scorrendo il piano */
+  whatYoullSee: string;
+}
+
 export interface Profile {
   age: number;
   weight: number;
@@ -28,11 +65,13 @@ export interface Session {
   targetHR?: string;
   blocks: string[];
   notes?: string;
+  rationale?: SessionRationale;
 }
 
 export interface Week {
   theme: string;
   sessions: Session[];
+  rationale?: WeekRationale;
 }
 
 export type EstimateConfidence = "low" | "medium" | "high";
@@ -46,6 +85,7 @@ export interface Plan {
   estimateConfidence?: EstimateConfidence | null;
   shortPrep?: boolean; // true if < 3 weeks
   veryShortPrep?: boolean; // true if < 2 weeks
+  philosophy?: PlanPhilosophy;
 }
 
 export interface EstimateDetail {

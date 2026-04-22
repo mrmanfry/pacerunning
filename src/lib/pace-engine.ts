@@ -510,8 +510,246 @@ function maxSessionsWithRest(days: number): number {
   return Math.floor((days + 1) / 2);
 }
 
+// ============================================================================
+// RATIONALE LIBRARY — spiegazioni didattiche ancorate ai dati utente.
+//
+// Approccio "ibrido": testi statici con placeholder risolti a runtime sui
+// dati del profilo (ritmo gara, zone FC, settimane alla gara). Questo dà
+// il 90% del valore della personalizzazione AI al costo zero di un lookup.
+//
+// Ogni builder riceve un contesto e restituisce la SessionRationale pronta.
+// Manteniamo la "voce" coerente col resto dell'app: descrittiva, da amico
+// esperto, mai prescrittiva-clinica.
+// ============================================================================
+
+interface RationaleContext {
+  raceDistance: number;
+  raceDistanceLabel: string; // "10K", "21K", "42K"
+  targetPacePerKm: string;   // "5'30\""
+  z2Low: number;
+  z2High: number;
+  z3Low: number;
+  z3High: number;
+  z4Low: number;
+  z4High: number;
+  z5Low: number;
+  z5High: number;
+  racePaceHr: number;
+  weeksToRace: number;       // settimane rimanenti
+  level: Level;
+}
+
+// Scegliamo il modello TID in base alla distanza gara.
+// Cap. "Modelli di Distribuzione dell'Intensità" della letteratura sportiva:
+// 10K → Polarizzato, 42K → Piramidale, 21K → Ibrido.
+function pickTidModel(raceDistance: number): "polarized" | "pyramidal" | "hybrid" {
+  if (raceDistance <= 12) return "polarized";
+  if (raceDistance >= 30) return "pyramidal";
+  return "hybrid";
+}
+
+function buildPlanPhilosophy(ctx: RationaleContext): PlanPhilosophy {
+  const model = pickTidModel(ctx.raceDistance);
+  if (model === "polarized") {
+    return {
+      tidModel: "polarized",
+      title: "Modello polarizzato — 80/15",
+      explanation:
+        `Sui ${ctx.raceDistanceLabel} il tuo ritmo gara vive vicino alla soglia anaerobica. Per spingere quella soglia più in alto, la letteratura amatoriale (Seiler, Muñoz) mostra che funziona meglio separare chiaramente i giorni facili dai giorni duri: circa l'80% del tempo totale in intensità leggera, il resto in sessioni davvero impegnative. Il "mezzo" (il classico ritmo medio) viene usato poco: stanca quanto il duro senza portare gli stessi adattamenti.`,
+      whatYoullSee:
+        `Lunghi a FC ${ctx.z2Low}-${ctx.z2High} bpm che ti sembreranno "troppo lenti" e ripetute brevi a FC ${ctx.z5Low}+ che ti sembreranno "troppo dure". È voluto — è il contrasto che produce i risultati.`,
+    };
+  }
+  if (model === "pyramidal") {
+    return {
+      tidModel: "pyramidal",
+      title: "Modello piramidale — volume + ritmo maratona",
+      explanation:
+        `Sui ${ctx.raceDistanceLabel} il ritmo gara è in piena Zona 2: il lavoro più importante è abituare il corpo a ossidare grassi e conservare glicogeno per ore. Le ripetute brevi ad alta intensità esistono ma sono pochissime — il grosso del lavoro vive tra lento e medio, con lunghi che diventano il pezzo forte del piano.`,
+      whatYoullSee:
+        `Tanti lunghi che cresceranno nelle settimane, tempo run a ritmo maratona (${ctx.targetPacePerKm}/km) nella fase centrale, pochissime ripetute brevi. Se ti aspettavi molte sessioni "veloci", non è un errore: per i ${ctx.raceDistanceLabel} il motore aerobico vale più della velocità di punta.`,
+    };
+  }
+  // hybrid / 21K
+  return {
+    tidModel: "hybrid",
+    title: "Modello ibrido — soglia + volume",
+    explanation:
+      `La mezza maratona sta esattamente nella zona di transizione: troppo lunga per un piano tutto VO₂max come i 10K, troppo breve per uno puramente aerobico come la maratona. Lavoriamo su entrambi i fronti: sessioni a soglia (tempo run, medi sostenuti) per alzare il ritmo sostenibile, più un volume aerobico crescente per durare i 21 km senza crollare.`,
+    whatYoullSee:
+      `Tempo run a ritmo gara (${ctx.targetPacePerKm}/km) o poco più lenti, lunghi in Z2 che crescono gradualmente, ripetute a intensità medio-alta più che massimale.`,
+  };
+}
+
+function buildWeekRationale(
+  kind: "base" | "build" | "intensity" | "specificity" | "taper",
+  weeksToRace: number,
+  raceDistanceLabel: string,
+): WeekRationale {
+  switch (kind) {
+    case "base":
+      return {
+        buildingBlock: "Costruzione del motore aerobico di base.",
+        whyNow:
+          `Mancano ${weeksToRace} settimane: è troppo presto per le ripetute gara-specifiche, troppo tardi per alzare il chilometraggio di botto. Costruiamo piano, il corpo adatta tendini e capillarizzazione, poi più avanti aggiungiamo intensità.`,
+        expectation:
+          `Sessioni facili che devono sembrare facili. Se le gambe girano pesanti già qui, è un segnale da ascoltare.`,
+      };
+    case "build":
+      return {
+        buildingBlock: "Aumento graduale del volume e introduzione della soglia.",
+        whyNow:
+          `Siamo in fase centrale. Il corpo ha preso confidenza con il carico di base, adesso possiamo aggiungere stimoli più specifici — medi e lunghi più consistenti — senza accumulare fatica pericolosa.`,
+        expectation:
+          `Il lungo cresce, compare un lavoro di qualità settimanale. Se il sonno o la motivazione cedono, alleggerisci senza sensi di colpa.`,
+      };
+    case "intensity":
+      return {
+        buildingBlock: "Intensità specifica — il cuore del piano.",
+        whyNow:
+          `A ${weeksToRace} settimane dai ${raceDistanceLabel} sei nella finestra in cui gli stimoli intensi producono il massimo ritorno. Ripetute e medi lavorano sui sistemi energetici che userai il giorno gara.`,
+        expectation:
+          `Le sessioni di qualità saranno impegnative. Recupera davvero nei giorni facili: è lì che avviene l'adattamento.`,
+      };
+    case "specificity":
+      return {
+        buildingBlock: "Specificità — ritmo gara e gambe pronte.",
+        whyNow:
+          `Ultima settimana piena prima del taglio volumi. Abituiamo gambe e testa al ritmo esatto che userai in gara, senza svuotarti.`,
+        expectation:
+          `Meno volume della settimana scorsa ma stesso tipo di sforzo. Non è tapering ancora — quello arriva subito dopo.`,
+      };
+    case "taper":
+      return {
+        buildingBlock: "Scarico pre-gara — arrivare freschi, non detrainati.",
+        whyNow:
+          `Il motore c'è già, l'abbiamo costruito nelle settimane precedenti. Adesso tagliamo volume ma teniamo l'intensità alta: meno ripetute ma alla stessa velocità, così le gambe si riposano senza "dimenticarsi" come si corre forte.`,
+        expectation:
+          `Ti sembrerà di fare poco. È il momento in cui la maggior parte dei runner sbaglia aggiungendo corse "per sicurezza". Fidati del piano.`,
+      };
+  }
+}
+
+type SessionRationaleKind =
+  | "easyShort"
+  | "easyContinuous"
+  | "easyShorter"
+  | "qualityMediumHigh"
+  | "qualityShortReps"
+  | "mediumProgressive"
+  | "mediumContinuous"
+  | "mediumProgressionRace"
+  | "longBase"
+  | "longBuild"
+  | "longIntensity"
+  | "racePaceShort"
+  | "preRace"
+  | "raceDay";
+
+function buildSessionRationale(
+  sessionKind: SessionRationaleKind,
+  ctx: RationaleContext,
+): SessionRationale {
+  switch (sessionKind) {
+    case "easyShort":
+    case "easyContinuous":
+    case "easyShorter":
+      return {
+        goal: "Costruire il motore aerobico senza accumulare fatica.",
+        why: `Le uscite facili sono l'80% del lavoro di un piano fatto bene. Corri piano perché è in queste sessioni che il corpo costruisce capillari, mitocondri, resistenza dei tendini — tutte cose che poi pagano quando fai le sessioni dure. Se le rendi medie, ti stanchi senza guadagnarci niente.`,
+        howToExecute: `FC tra ${ctx.z2Low} e ${ctx.z2High} bpm. Devi poter tenere una conversazione a frasi intere. Se ti senti "strozzato" dal ritmo, stai andando troppo forte — rallenta senza problemi.`,
+      };
+    case "qualityMediumHigh":
+      return {
+        goal: "Alzare la soglia anaerobica.",
+        why: `La soglia è il ritmo più alto che puoi tenere a lungo senza che il lattato esploda. Più la alzi, più il tuo ritmo ${ctx.raceDistanceLabel} diventa sostenibile invece di "tirato". Questa sessione stimola esattamente quella zona: impegnativa ma non massimale, 8' è la durata che produce l'adattamento senza cuocerti.`,
+        howToExecute: `FC ${ctx.z4Low}-${ctx.z4High} bpm nei blocchi di 8'. Respirazione decisamente accelerata ma controllata, come se stessi facendo un colloquio sotto sforzo. Nei 3' di recupero devi tornare a respirare tranquillo.`,
+      };
+    case "qualityShortReps":
+      return {
+        goal: "Stimolare il VO₂max — il tuo tetto aerobico.",
+        why: `Sui ${ctx.raceDistanceLabel} il ritmo gara vive vicino alla soglia anaerobica. Più alto è il tuo VO₂max, più quella soglia si alza, più il tuo ritmo gara diventa "comodo". Le ripetute brevi a intensità alta sono lo stimolo più diretto per spingerlo in su.`,
+        howToExecute: `FC ${ctx.z5Low}-${ctx.z5High} bpm nei 3'. Respirazione profonda e veloce, riesci a dire 2-3 parole non di più. Se arrivi alla quinta ripetuta senza crollo di ritmo, la sessione ha funzionato. Se crolli prima, rallenta — meglio una buona quarta che una quinta disastrosa.`,
+      };
+    case "mediumProgressive":
+    case "mediumContinuous":
+      return {
+        goal: "Lavorare alla soglia aerobica per sostenere il ritmo più a lungo.",
+        why: `Il medio è la zona che sui ${ctx.raceDistanceLabel} ti porta al traguardo: non è ripetute devastanti né corsa rilassata, è lo sforzo che senti ma che puoi tenere a lungo. Allenarlo insegna al corpo a bruciare energia in modo più efficiente quando il ritmo sale.`,
+        howToExecute: `FC ${ctx.z3High}-${ctx.z4Low} bpm. Sforzo sostenuto, respirazione più alta del facile ma regolare. Non dovrebbe mai farti sentire "al limite" — se succede, hai spinto troppo.`,
+      };
+    case "mediumProgressionRace":
+      return {
+        goal: "Familiarizzare col ritmo gara partendo rilassato.",
+        why: `Partire rilassato e progredire simula la strategia ideale in gara — partire controllati, poi trovare il ritmo. Insegna al corpo (e alla testa) che il ritmo gara non è un muro, è qualcosa a cui arrivi gradualmente.`,
+        howToExecute: `Primi 20' facili (${ctx.z2Low}-${ctx.z2High} bpm), poi 20' che salgono fino al ritmo gara (${ctx.targetPacePerKm}/km, FC ~${ctx.racePaceHr} bpm). Se nei progressivi senti di essere già al limite, ti sei spinto troppo oltre troppo presto.`,
+      };
+    case "longBase":
+    case "longBuild":
+    case "longIntensity":
+      return {
+        goal: "Resistenza di durata — il pilastro per chi corre lungo.",
+        why: `Il lungo fa cose che nessun'altra sessione fa: svuota il glicogeno, abitua il corpo a bruciare grassi, rafforza tendini e struttura muscolare sotto stress prolungato. Per i ${ctx.raceDistanceLabel} è l'allenamento più importante del piano.`,
+        howToExecute: `FC ${ctx.z2Low}-${ctx.z2High + 5} bpm. Ritmo tranquillo anche se sembra "troppo lento" — è voluto, il lungo si fa piano. Idratati regolarmente, e se nell'ultimo terzo serve camminare brevi tratti, va bene.`,
+      };
+    case "racePaceShort":
+      return {
+        goal: "Imprimere il ritmo gara nelle gambe.",
+        why: `A ridosso della gara servono sessioni che "insegnino" alle gambe la sensazione esatta del ritmo ${ctx.targetPacePerKm}/km. Non per allenarti, per ricordare al sistema neuromuscolare cosa gli chiederai il giorno della gara.`,
+        howToExecute: `Blocchi a FC ~${ctx.racePaceHr} bpm, cioè il tuo ritmo gara teorico. Devi sentire lo sforzo gara ma uscire dalla sessione fresco, non stanco. Se ti senti sulle gambe, hai spinto oltre — non è quello il punto.`,
+      };
+    case "preRace":
+      return {
+        goal: "Attivazione finale — tenere il ritmo vivo senza stancarsi.",
+        why: `A pochi giorni dalla gara, gli allenamenti non costruiscono più niente: la forma c'è. Questa sessione serve solo a tenere il sistema neuromuscolare "acceso" sul ritmo gara. È un promemoria, non un carico.`,
+        howToExecute: `Due blocchi brevi a FC ~${ctx.racePaceHr} bpm con recupero generoso. Devi uscire pensando "potevo fare di più" — è esattamente l'intento: arrivare carico al giorno gara, non stanco.`,
+      };
+    case "raceDay":
+      return {
+        goal: "Ciò per cui hai lavorato fin qui.",
+        why: `Tutto il piano converge qui. Il motore aerobico, la soglia, la forza mentale per tenere il ritmo — sono già nelle gambe. Oggi non si costruisce nulla: si usa.`,
+        howToExecute: `Parti controllato (primi km sotto FC ${Math.round(ctx.racePaceHr * 0.98)}), corpo centrale a FC ${ctx.racePaceHr} ± 3 bpm, finale libero di esprimerti. L'errore più comune nei ${ctx.raceDistanceLabel} è partire troppo forte nei primi 2 km.`,
+      };
+  }
+}
+
+function buildRationaleContext(
+  profile: Profile,
+  weeksToRace: number,
+  zones: ZonesResult,
+): RationaleContext {
+  const raceDist = profile.raceDistance || 10;
+  const label = Number.isInteger(raceDist) ? `${raceDist}K` : `${Math.round(raceDist)}K`;
+  // Zones are ordered [Z2, Z3, Z4, Z5] per computeZonesKarvonen output
+  const [z2, z3, z4, z5] = zones.zones;
+  const parsed = (r: string): [number, number] => {
+    // range format: "120–140" (en-dash). Tolerate ASCII "-" too.
+    const parts = r.split(/[–-]/).map((n) => parseInt(n, 10));
+    return [parts[0] || 0, parts[1] || 0];
+  };
+  const [z2Low, z2High] = parsed(z2.range);
+  const [z3Low, z3High] = parsed(z3.range);
+  const [z4Low, z4High] = parsed(z4.range);
+  const [z5Low, z5High] = parsed(z5.range);
+  return {
+    raceDistance: raceDist,
+    raceDistanceLabel: label,
+    targetPacePerKm: paceFromTime(profile.targetTime, raceDist),
+    z2Low, z2High, z3Low, z3High, z4Low, z4High, z5Low, z5High,
+    racePaceHr: Math.round(zones.hrMax * 0.88),
+    weeksToRace,
+    level: profile.level,
+  };
+}
+
+function formatRaceDistanceLabelLocal(d: number | undefined | null): string {
+  const v = d && d > 0 ? d : 10;
+  return Number.isInteger(v) ? `${v}K` : `${Math.round(v)}K`;
+}
+
 export function generatePlan(profile: Profile): Plan {
-  const { hrMax } = computeZones(profile);
+  const zones = computeZones(profile);
+  const { hrMax } = zones;
   const z2: [number, number] = [Math.round(hrMax * 0.65), Math.round(hrMax * 0.75)];
   const z3: [number, number] = [Math.round(hrMax * 0.75), Math.round(hrMax * 0.85)];
   const z4: [number, number] = [Math.round(hrMax * 0.85), Math.round(hrMax * 0.9)];

@@ -1,100 +1,75 @@
 
 
-# Fix: i numeri sbagliati erano placeholder, non estrazione
+# Due problemi separati, due fix distinti
 
-## Cosa è successo davvero (root cause confermata dai DB log)
+## Problema 1 — "Errore upload, riprova più tardi"
 
-Confronto fra i log e quello che ti ha mostrato l'app:
+### Cosa è successo davvero
 
-| | Estrazione AI (riuscita) | Quello che hai visto |
-|---|---|---|
-| Durata | **45 min** | 40 min |
-| Distanza | **7,59 km** | 5 km |
-| FC media | **165 bpm** | 150 bpm |
-| FC max | **183 bpm** | 170 bpm |
+Dal session replay: hai caricato `IMG_9192.PNG` (estensione **maiuscola**) e dopo ~10ms è apparso il toast "Errore upload, riprova più tardi". Quel toast viene SOLO dal `catch` generico in `LogWorkout.tsx` riga 177 — quindi qualcosa ha throwato prima ancora che l'estrazione partisse, probabilmente nell'upload allo storage.
 
-I numeri che hai visto **non vengono dallo screenshot**: sono i **default placeholder** di `LogWorkout.tsx` (`distance: 5, hrAvg: 150, hrMax: 170`).
+I log Postgres e i log edge function di `extract-workout-data` sono **vuoti** per quella finestra → la chiamata non è nemmeno arrivata al server. È fallito l'upload su `workout-screenshots`. Le cause più probabili, in ordine:
 
-Cosa è successo, in ordine:
-1. Hai caricato gli screenshot.
-2. Hai cliccato "SALVA E LEGGI" **mentre l'estrazione era ancora in corso** (lo spinner girava). Il bottone non era disabilitato → ha salvato i placeholder.
-3. La chiamata `analyze-workout` non è mai arrivata al server (zero righe in `ai_requests` per quel log) → l'analisi mostrata è quella **deterministica fallback** di `pace-engine.ts`, calcolata sui placeholder. Da qui "8'00\"/km", "82% FCmax", "intensità leggera", "stimo Z2 anche se è una qualità".
-4. Mezzo minuto dopo l'estrazione AI è arrivata pulita (7.59 km, 165 bpm, 30 punti del grafico FC, FC max 183 letta dall'asse Y) ma è arrivata **dopo il submit**, quindi nessuno l'ha usata.
+1. **MIME type non riconosciuto**: il file è `IMG_9192.PNG` (estensione maiuscola). Il browser su iOS/desktop a volte invia `file.type` vuoto per `.PNG` maiuscolo, e Supabase Storage rifiuta upload senza contentType valido con un errore generico.
+2. **Rete instabile / timeout** durante l'upload concorrente di 3 file da diversi MB.
+3. **File troppo grande**: già controllato a 8MB, quindi escluso.
 
-Quindi: il pipeline deep funziona. Quello che non funziona è il **wiring tra estrazione e form**, e il **fallback dell'analisi** non distingue "mancanza di AI" da "campi vuoti", inventando una lettura su numeri inventati.
+### Cosa fixiamo
 
-## Cosa fixiamo
+`src/lib/pace-repository.ts` — `uploadWorkoutScreenshot()`:
+- Forziamo l'estensione **lowercase** prima di costruire il path (`.PNG` → `.png`).
+- Se `file.type` è vuoto o non inizia con `image/`, **deduciamo il MIME dall'estensione** (`png` → `image/png`, `jpg`/`jpeg` → `image/jpeg`, `webp` → `image/webp`, `heic` → `image/heic`).
+- Wrappiamo l'errore Supabase con un messaggio più utile (status code + message) invece di throware l'oggetto raw.
 
-Quattro fix, tutti chirurgici. Niente nuovo prompt, niente nuovi modelli (l'estrazione è ottima così).
+`src/components/pace/LogWorkout.tsx` — `handleScreenshot()`:
+- Nel `catch` mostriamo il **messaggio reale dell'errore** invece di "Riprova più tardi" generico, così la prossima volta vediamo subito se è MIME, rete o storage policy.
+- Toast più chiaro: "Upload fallito: <messaggio>".
 
-### 1. Blocca il salvataggio finché l'estrazione non finisce
+Niente nuove tabelle, niente nuove policy. La policy storage esiste già ed è corretta (`{userId}/{file}` con `auth.uid() = foldername[1]`).
 
-`LogWorkout.tsx` — bottone "SALVA E LEGGI" disabilitato se `extracting === true` o se l'utente ha caricato screenshot ma l'estrazione non ha popolato neanche un campo (`extractionMeta == null`). Banner sopra il bottone: "STO LEGGENDO LO SCREENSHOT — aspetta o togli l'immagine per inserire a mano".
+## Problema 2 — "Il dashboard mi propone la lunga, io voglio fare la ripetute"
 
-### 2. Niente più placeholder visibili
+### Come funziona oggi
 
-`LogWorkout.tsx` — i campi partono **vuoti** (`null`/`""`), non con `5/150/170`. `MetricCard` mostra "—" come placeholder grigio finché non c'è un valore (manuale o estratto). `canSave` resta `duration > 0 && distance > 0 && hrAvg > 0`. Così se per qualche motivo lo spinner muore senza popolare nulla, l'utente VEDE che mancano i numeri invece di salvare 5/150 silenziosamente.
+`findNextSession()` in `pace-engine.ts:815` scorre le settimane e le sessioni **in ordine** e restituisce la **prima non loggata**. Se la tua settimana 1 ha l'ordine `[lunga, ripetute, easy]`, ti propone la lunga.
 
-### 3. Fallback deterministico più onesto
+**Però — buona notizia — non sei costretto a seguirlo.** Il `Dashboard` mostra anche la lista completa delle sessioni della settimana (sezione `plan.weeks[w].sessions` cliccabili). Se clicchi sulla "ripetute" lì, si apre il `SessionDetail` di quella sessione e quando logghi l'allenamento viene salvato con `weekIdx + sessionIdx` corretti. Il sistema accetta sessioni in qualsiasi ordine. La "next" è solo un suggerimento, non un vincolo.
 
-`pace-engine.ts` `analyzeWorkout()` — se i numeri sono palesemente incoerenti col tipo di sessione (es. "quality" con pace 8'/km e RPE 6 → contraddice una ripetuta), l'analisi dice esplicitamente: "I numeri non tornano col tipo di sessione che hai indicato — verifica che durata e distanza siano quelle giuste, oppure cambia il tipo di sessione". Niente più "intensità leggera" silenziosa su una qualità che evidentemente non lo era.
+### Cosa cambia per il tuo caso
 
-### 4. La chiamata `analyze-workout` deve loggarsi sempre
+**Niente codice da cambiare per farlo funzionare** — già funziona così. Quello che cambiamo è la **comunicazione**: oggi la card "Prossima sessione" sembra dire "DEVI fare questa", e la lista settimanale sotto sembra solo informativa.
 
-Oggi se la fetch lato client esplode (es. body troppo grande con `hrSeries` 30 punti + `extractedWorkout` completo) finisce nel `catch` di Index.tsx e passa al fallback, ma non arriva mai al server → zero traccia di cosa è successo. Due cambi:
+`src/components/pace/Dashboard.tsx`:
+- Sopra la card "PROSSIMA SESSIONE" cambiamo il microcopy: invece di **"PROSSIMA SESSIONE"** scriviamo **"SUGGERITA OGGI"** + sottotitolo *"Puoi fare un'altra sessione della settimana — clicca qui sotto per scegliere."*
+- Nella lista settimanale, evidenziamo visivamente che le sessioni sono **tutte** loggabili (badge "DISPONIBILE" sulle non completate, non solo sulla "next").
+- Quando clicchi una sessione che NON è la "next" suggerita, il `SessionDetail` mostra un piccolo banner *"Stai per loggare la {nome}. La sessione suggerita era {altra}, ma puoi farla quando vuoi."* — niente blocchi, solo trasparenza.
 
-- `Index.tsx`: nel `catch` mostra un toast esplicito ("Analisi AI fallita: <messaggio>"), così la prossima volta l'utente lo vede subito.
-- `Index.tsx`: prima di chiamare `analyze-workout`, **stripa `hrSeries.points` a 12 punti riassuntivi** (passa già la curva ma più compatta) e **rimuove `paceSeries`** dal payload del coach. Il coach non ha bisogno della granularità completa per commentare — gli bastano segments + kmSplits + un riassunto dell'andamento. La curva piena resta in DB nella tabella `workout_extractions` per la UI.
-
-### 5. Il coach DEVE leggere i blocchi della sessione pianificata
-
-Oggi `analyze-workout` riceve `nextPlanned.blocks` (i 4 step "10' riscaldamento → 5x3' alta → recupero 2' → 10' defaticamento") MA come `nextPlanned`, cioè la **prossima sessione**, non quella appena fatta. La sessione appena loggata invece arriva solo come `log.sessionType: "quality"` + `log.sessionName`, senza i blocchi.
-
-Fix in `Index.tsx`: aggiungiamo `currentPlanned: { name, type, duration, targetHR, blocks }` al payload, prendendo i blocchi dalla sessione ESATTA che è stata loggata (`plan.weeks[log.weekIdx].sessions[log.sessionIdx]`).
-
-Fix in `analyze-workout/index.ts`: nuovo blocco prompt `<plan_vs_execution>` che:
-- riceve `<plannedSession>` con i blocchi ("5 blocchi di 3' a 169-179 bpm, recuperi di 2'")
-- riceve `<segments>` con quello che hai effettivamente fatto (10:01 riscaldamento, R1=3'00"@171, REC=2'00"@166, R2=3'00"@173...)
-- istruzione esplicita: "Leggi la sessione PER BLOCCHI, non come totale. Per ogni ripetuta confronta esecuzione vs target FC e di' se è in banda. NON ridurre tutto a 'intensità leggera' guardando solo la media."
-- popola `segmentReadings` con un commento per ogni ripetuta.
-
-## Cosa NON tocchiamo
-
-- Estrazione (`extract-workout-data`): funziona benissimo, 7.59 km e 30 punti del grafico FC letti correttamente.
-- Schema DB: già ha `segment_readings` jsonb da prima.
-- UI di `AnalysisScreen` / `SessionDetail`: già renderizza `SegmentTimeline` e `HrSparkline` quando i dati ci sono.
-- Modelli AI: restano `gemini-2.5-flash` (triage) + `gemini-2.5-pro` (deep) + `gemini-3-flash-preview` (coach). Niente upgrade, è un problema di payload e di prompt, non di modello.
+`src/lib/pace-engine.ts` — `findNextSession()`:
+- Nessun cambio di logica. Resta "prima non loggata" come default.
 
 ## File toccati
 
 ```text
+src/lib/pace-repository.ts
+  - uploadWorkoutScreenshot(): lowercase ext, MIME inference fallback,
+    errore propagato con messaggio leggibile
+
 src/components/pace/LogWorkout.tsx
-  - default fields → null/""
-  - bottone SALVA disabilitato se extracting o screenshot caricati senza extractionMeta
-  - banner "stiamo leggendo, aspetta"
+  - catch dell'upload: toast con messaggio reale invece di
+    "Riprova più tardi" generico
 
-src/pages/Index.tsx
-  - aggiunge currentPlanned al payload di analyze-workout
-  - stripa hrSeries.points a 12 prima di inviare
-  - rimuove paceSeries dal payload coach
-  - toast esplicito su catch della fetch coach
+src/components/pace/Dashboard.tsx
+  - relabeling "PROSSIMA SESSIONE" → "SUGGERITA OGGI" + sottotitolo
+  - lista sessioni settimana con badge "DISPONIBILE" sulle non completate
 
-src/lib/pace-engine.ts
-  - analyzeWorkout(): se sessione "quality" + RPE basso + pace molto sopra target → 
-    verdetto "i numeri non tornano col tipo di sessione" invece di lettura silenziosa
+src/components/pace/SessionDetail.tsx
+  - banner informativo se l'utente apre una sessione diversa dalla
+    "next" suggerita (zero blocchi, solo nota)
 
-supabase/functions/analyze-workout/index.ts
-  - PROMPT_VERSION bump (v5-2026-04-22-segments)
-  - nuovo blocco system <plan_vs_execution>
-  - buildUserPrompt riceve currentPlanned e lo formatta come <plannedSession>
-  - istruzione: leggi PER BLOCCHI quando segments presenti, non come totale
-
-NIENTE migrazioni DB.
+NIENTE migrazioni DB. NIENTE modifiche a policy storage. NIENTE modifiche a edge functions.
 ```
 
 ## Domande aperte
 
-Una sola, decisivamente:
-
-**A. Il submit con estrazione in corso:** lo blocchiamo (mostro spinner, bottone disabled finché non finisce) — opzione pulita ma se l'estrazione si pianta l'utente non può salvare. Fallback: dopo 30s di estrazione bloccata, abilito comunque il bottone e mostro avviso "estrazione lenta, vuoi salvare lo stato attuale?". OK così?
+Nessuna. Procedo non appena approvi.
 

@@ -357,6 +357,20 @@ function buildUserPrompt(args: any): string {
 ${(nextPlanned.blocks || []).map((b: string, i: number) => `  ${i + 1}. ${b}`).join("\n")}`
     : `Prossima sessione del piano: NESSUNA (piano completato — puoi suggerire liberamente cosa fare).`;
 
+  const plannedSessionBlock = currentPlanned
+    ? `<plannedSession>
+Sessione che l'utente HA APPENA ESEGUITO, come era pianificata nel diario:
+- Nome: ${currentPlanned.name}
+- Tipo: ${currentPlanned.type}
+- Durata prevista: ${currentPlanned.duration} min
+- FC target: ${currentPlanned.targetHR || "non specificata"} bpm
+- Blocchi previsti (struttura della sessione):
+${(currentPlanned.blocks || []).map((b: string, i: number) => `  ${i + 1}. ${b}`).join("\n")}
+
+Confronta questi blocchi con i <segments> reali (più sotto) e leggi la sessione PER BLOCCHI. Non ridurre tutto alla media del totale. Vedi <plan_vs_execution> nel system prompt.
+</plannedSession>`
+    : "";
+
   const raceDist = profile.raceDistance && profile.raceDistance > 0 ? profile.raceDistance : 10;
   const raceDistLabel = Number.isInteger(raceDist) ? `${raceDist}K` : `${Math.round(raceDist)}K`;
 

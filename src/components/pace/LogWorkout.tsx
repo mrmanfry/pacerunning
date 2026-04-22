@@ -391,8 +391,8 @@ function MetricCard({
 }: {
   icon: React.ReactNode;
   label: string;
-  value: number;
-  onChange: (n: number) => void;
+  value: number | null;
+  onChange: (n: number | null) => void;
   unit: string;
   step?: number;
   auto?: boolean;
@@ -410,9 +410,18 @@ function MetricCard({
         <input
           type="number"
           step={step}
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-          className="display-font text-4xl bg-transparent outline-none w-full min-w-0"
+          value={value ?? ""}
+          placeholder="—"
+          onChange={(e) => {
+            const raw = e.target.value;
+            if (raw === "") {
+              onChange(null);
+              return;
+            }
+            const n = parseFloat(raw);
+            onChange(Number.isFinite(n) ? n : null);
+          }}
+          className="display-font text-4xl bg-transparent outline-none w-full min-w-0 placeholder:text-stone-300"
         />
         <span className="mono-font text-xs text-stone-400">{unit}</span>
       </div>

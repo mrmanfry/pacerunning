@@ -1190,6 +1190,22 @@ export function generatePlan(profile: Profile): Plan {
       sessions.push(...selectSessions(kind, targetCount));
     }
 
+    // PROGRESSIONE LUNGO: sostituiamo qualunque long* con un long calcolato
+    // dinamicamente usando computeLongDuration ancorato al currentBest e al
+    // recentLongRun dell'utente. Indice 0 = prima settimana di training,
+    // l'ultima settimana di training è quella prima del taper.
+    if (!isRaceWeek) {
+      const trainingTotal = Math.max(1, numWeeks - 1); // escluso race week
+      const trainingIdx = wi; // wi 0..numWeeks-2 in training
+      const longKind: "base" | "build" | "intensity" =
+        kind === "intensity" || kind === "specificity" ? "intensity" : kind === "build" ? "build" : "base";
+      for (let si = 0; si < sessions.length; si++) {
+        if (sessions[si].type === "long") {
+          sessions[si] = buildLong("Lungo lento", trainingIdx, trainingTotal, longKind);
+        }
+      }
+    }
+
     // Salta settimane completamente vuote (es. settimana corrente con 0 giorni utili
     // E non è la settimana gara — caso limite improbabile)
     if (sessions.length === 0) continue;

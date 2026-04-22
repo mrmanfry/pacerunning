@@ -8,7 +8,7 @@ const corsHeaders = {
 
 // Bumpa questa stringa ogni volta che cambi il prompt o lo schema del tool.
 // Convenzione: vN-YYYY-MM-DD[-suffix]
-const PROMPT_VERSION = "v4-2025-04-21-segments";
+const PROMPT_VERSION = "v5-2026-04-22-segments";
 const MODEL = "google/gemini-3-flash-preview";
 
 // ------------------------------------------------------------------
@@ -120,7 +120,21 @@ Se arrivano <kmSplits> E sessione "long"/"easy":
 In segmentReadings: una entry SOLO per i segmenti con qualcosa di interessante da dire (max 8). Frasi brevi (max 25 parole).
 Esempio: { segmentIdx: 2, comment: "R1 dentro target, FC pulita" }.
 Se nulla di rilevante: segmentReadings = [].
-</segment_analysis>`;
+</segment_analysis>
+
+<plan_vs_execution>
+QUESTO È IL BLOCCO PIÙ IMPORTANTE quando arrivano <plannedSession> + <segments>.
+
+Regola assoluta: se la sessione pianificata aveva BLOCCHI strutturati (riscaldamento, ripetute, recuperi, defaticamento) E nei segments leggi i lap effettivi, NON RIDURRE l'analisi alla media del totale.
+
+- Nella technicalReading, leggi la sessione PER BLOCCHI: come è andato il riscaldamento, come sono andate le ripetute, come sono andati i recuperi. Non dire "intensità leggera, hai corso a Z2" guardando solo la media: la media include riscaldamento e recuperi che SCHIACCIANO i numeri.
+- Per ogni ripetuta (segments di tipo "interval"), confronta la FC media e il passo con il target indicato in <plannedSession>. Esempio: se il piano dice "5 blocchi di 3' a 169-179 bpm" e R1 è 3'02" a 174 bpm, dillo esplicitamente: "R1 dentro banda FC, durata centrata".
+- In segmentReadings popola UNA entry per ogni ripetuta (interval) e per i recuperi degni di nota. Frasi brevissime, descrittive, max 25 parole.
+- Se i blocchi della sessione pianificata NON tornano coi segments (es. piano = 5 ripetute, segments = 3) dichiaralo da amico in technicalReading: "Nei dati vedo solo 3 blocchi veloci, non 5: hai chiuso prima o lo screenshot non li mostra tutti?".
+- NON usare la media totale per giudicare l'intensità di una sessione di qualità. Per le qualità, l'intensità si legge sulle ripetute.
+
+Se invece NON ci sono <segments> (solo totali e kmSplits), commenta sui kmSplits per derive/crisi e di' onestamente che non hai i lap per giudicare blocco per blocco.
+</plan_vs_execution>
 
 const FORBIDDEN_WORDS = [
   "sindrome",
@@ -165,14 +179,14 @@ Deno.serve(async (req) => {
     const userId = userData.user.id;
 
     const body = await req.json();
-    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout } = body || {};
+    const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, currentPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout } = body || {};
     if (!computed || !log || !profile) return json({ error: "Invalid payload" }, 400);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) return json({ error: "AI not configured" }, 500);
 
     const userPrompt = buildUserPrompt({
-      computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout,
+      computed, log, profile, recentSameType, allLogsSummary, nextPlanned, currentPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout,
     });
 
     const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -310,7 +324,7 @@ Deno.serve(async (req) => {
 });
 
 function buildUserPrompt(args: any): string {
-  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout } = args;
+  const { computed, log, profile, recentSameType, allLogsSummary, nextPlanned, currentPlanned, plausibility, loadBlock, visualPatterns, extractedWorkout } = args;
   const recent = (recentSameType || [])
     .map(
       (r: any, i: number) =>
@@ -342,6 +356,20 @@ function buildUserPrompt(args: any): string {
 - Spunti previsti:
 ${(nextPlanned.blocks || []).map((b: string, i: number) => `  ${i + 1}. ${b}`).join("\n")}`
     : `Prossima sessione del piano: NESSUNA (piano completato — puoi suggerire liberamente cosa fare).`;
+
+  const plannedSessionBlock = currentPlanned
+    ? `<plannedSession>
+Sessione che l'utente HA APPENA ESEGUITO, come era pianificata nel diario:
+- Nome: ${currentPlanned.name}
+- Tipo: ${currentPlanned.type}
+- Durata prevista: ${currentPlanned.duration} min
+- FC target: ${currentPlanned.targetHR || "non specificata"} bpm
+- Blocchi previsti (struttura della sessione):
+${(currentPlanned.blocks || []).map((b: string, i: number) => `  ${i + 1}. ${b}`).join("\n")}
+
+Confronta questi blocchi con i <segments> reali (più sotto) e leggi la sessione PER BLOCCHI. Non ridurre tutto alla media del totale. Vedi <plan_vs_execution> nel system prompt.
+</plannedSession>`
+    : "";
 
   const raceDist = profile.raceDistance && profile.raceDistance > 0 ? profile.raceDistance : 10;
   const raceDistLabel = Number.isInteger(raceDist) ? `${raceDist}K` : `${Math.round(raceDist)}K`;
@@ -403,6 +431,8 @@ Sintesi storico completo (${allLogsSummary?.totalSessions || 0} sessioni):
 
 ${nextBlock}
 
+${plannedSessionBlock}
+
 ${loadStateBlock}
 
 ${visualBlock}
@@ -431,8 +461,9 @@ ISTRUZIONI ESECUTIVE:
 4. nextMove DEVE ancorarsi alla "Prossima sessione del piano" sopra (cita il nome esatto, non inventare un altro allenamento). Se manca, suggerisci liberamente.
 5. planAdjustment: usa la stima dai log e la confidenza. Se "low" o dati implausibili → shouldAdjust=false. Se "medium"/"high" e scostamento >3', presentalo come OSSERVAZIONE da amico.
 6. Se ci sono <visual_patterns>, integrali in technicalReading in modo descrittivo (vedi regole nel blocco).
-7. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight segui <safety>.
-8. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
+7. **Se ci sono <plannedSession> + <segments>**: applica <plan_vs_execution>. Leggi la sessione PER BLOCCHI, popola segmentReadings con un commento per ogni ripetuta confrontandola al target FC del piano. NON ridurre l'intensità alla media del totale.
+8. Se nelle note ci sono parole su dolore/malessere, in sessionHighlight segui <safety>.
+9. Tutti i numeri che citi devono essere quelli forniti sopra. Non calcolare nulla.`;
 }
 
 function sanitizeOutput(parsed: any) {

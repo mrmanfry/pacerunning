@@ -59,6 +59,18 @@ type Screen =
   | "analysis"
   | "settings";
 
+// Uniformly downsample a series to at most `target` points by taking
+// evenly-spaced indices. Keeps first + last for shape preservation.
+function downsamplePoints<T>(points: T[], target: number): T[] {
+  if (!Array.isArray(points) || points.length <= target) return points ?? [];
+  const out: T[] = [];
+  const step = (points.length - 1) / (target - 1);
+  for (let i = 0; i < target; i++) {
+    out.push(points[Math.round(i * step)]);
+  }
+  return out;
+}
+
 const Index = () => {
   const { user, loading: authLoading } = useAuth();
   const [screen, setScreen] = useState<Screen>("loading");
@@ -304,7 +316,43 @@ const Index = () => {
           }
         : null;
 
+      // The CURRENT planned session — the one we just executed. The coach reads
+      // segments and kmSplits AGAINST these blocks (warmup, intervals, recovery, cooldown)
+      // so it can comment lap-by-lap instead of averaging everything to "easy".
+      const currentPlanned =
+        log.weekIdx != null &&
+        log.sessionIdx != null &&
+        updatedPlan.weeks[log.weekIdx]?.sessions[log.sessionIdx]
+          ? (() => {
+              const s = updatedPlan.weeks[log.weekIdx!].sessions[log.sessionIdx!];
+              return {
+                name: s.name,
+                type: s.type,
+                duration: s.duration,
+                targetHR: s.targetHR ?? null,
+                blocks: s.blocks,
+              };
+            })()
+          : null;
+
       const plausibility = checkDataPlausibility(fullLog);
+
+      // Compress payload before sending: keep the curve but small. The full
+      // hrSeries lives in workout_extractions for the UI; the coach only needs
+      // a coarse trend. paceSeries is dropped entirely (segments + kmSplits
+      // already give plenty of pace info).
+      const compactExtractedWorkout = extractedWorkout
+        ? {
+            ...extractedWorkout,
+            hrSeries: extractedWorkout.hrSeries
+              ? {
+                  samplingHintSec: extractedWorkout.hrSeries.samplingHintSec,
+                  points: downsamplePoints(extractedWorkout.hrSeries.points, 12),
+                }
+              : null,
+            paceSeries: null,
+          }
+        : null;
 
       try {
         const { data: aiData, error: aiError } = await supabase.functions.invoke("analyze-workout", {
@@ -315,10 +363,11 @@ const Index = () => {
             recentSameType,
             allLogsSummary,
             nextPlanned,
+            currentPlanned,
             plausibility,
             loadBlock,
             visualPatterns: visualPatterns ?? null,
-            extractedWorkout: extractedWorkout ?? null,
+            extractedWorkout: compactExtractedWorkout,
           },
         });
 
@@ -370,6 +419,8 @@ const Index = () => {
         }
       } catch (err) {
         console.error("AI analysis error:", err);
+        const msg = err instanceof Error ? err.message : "Errore di rete";
+        toast({ title: "Analisi AI fallita", description: msg, variant: "destructive" });
         setAnalysis({ ...baseAnalysis, extractedWorkout: extractedWorkout ?? null });
       } finally {
         setAnalysisLoading(false);

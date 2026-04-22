@@ -926,10 +926,22 @@ export function analyzeWorkout(
   const pace = c.paceFormatted;
   const targetType = log.sessionType;
 
+  // Honesty guard: if the user marked a "quality" session but the numbers don't
+  // back it up (very low RPE AND pace far slower than race target), don't
+  // pretend to read it as easy — flag the inconsistency so they fix the input.
+  const qualityInconsistent =
+    targetType === "quality" &&
+    log.rpe <= 6 &&
+    c.paceDeltaSec > 60 &&
+    hrPct < 80;
+
   let verdictTitle = "";
   let verdictText = "";
 
-  if (targetType === "easy" || targetType === "long") {
+  if (qualityInconsistent) {
+    verdictTitle = "I numeri non tornano col tipo di sessione";
+    verdictText = `Hai indicato una sessione di "qualità" (ripetute) ma il passo medio è ${pace}/km (${c.paceDeltaSec > 0 ? "+" : ""}${c.paceDeltaSec}s/km rispetto al ritmo gara), la FC media è al ${hrPct}% della massima e l'RPE è ${log.rpe}/10. Verifica che durata e distanza siano quelle giuste, oppure cambia il tipo di sessione: leggere queste medie come una qualità rischia di darti un quadro fuorviante.`;
+  } else if (targetType === "easy" || targetType === "long") {
     if (hrPct > 78) {
       verdictTitle = "Intensità sopra i riferimenti per un lento";
       verdictText = `La FC media si colloca intorno al ${hrPct}% della FC massima teorica. Per sessioni descritte come "lente", i riferimenti amatoriali indicano sotto il 75%. Potrebbe essere utile rallentare nelle prossime sessioni.`;
@@ -943,7 +955,7 @@ export function analyzeWorkout(
       verdictText = `FC media intorno al ${hrPct}% della massima teorica. Con uno sforzo percepito di ${log.rpe}/10 il quadro è coerente.`;
     } else if (hrPct < 85) {
       verdictTitle = "Intensità sotto i riferimenti per un lavoro veloce";
-      verdictText = `Per sessioni di ripetute si indica sopra l'85% della FC massima. Qui la media si è fermata al ${hrPct}%.`;
+      verdictText = `Per sessioni di ripetute si indica sopra l'85% della FC massima. Qui la media si è fermata al ${hrPct}%. Ricorda che la media include riscaldamento e recuperi: guarda i singoli blocchi se disponibili.`;
     } else {
       verdictTitle = "Intensità elevata";
       verdictText = `Il ${hrPct}% della FC massima è una fascia alta. Se succede ripetutamente potresti arrivare stanco alle sessioni successive.`;

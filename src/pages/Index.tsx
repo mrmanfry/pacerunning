@@ -59,6 +59,18 @@ type Screen =
   | "analysis"
   | "settings";
 
+// Uniformly downsample a series to at most `target` points by taking
+// evenly-spaced indices. Keeps first + last for shape preservation.
+function downsamplePoints<T>(points: T[], target: number): T[] {
+  if (!Array.isArray(points) || points.length <= target) return points ?? [];
+  const out: T[] = [];
+  const step = (points.length - 1) / (target - 1);
+  for (let i = 0; i < target; i++) {
+    out.push(points[Math.round(i * step)]);
+  }
+  return out;
+}
+
 const Index = () => {
   const { user, loading: authLoading } = useAuth();
   const [screen, setScreen] = useState<Screen>("loading");

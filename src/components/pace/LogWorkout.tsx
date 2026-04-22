@@ -130,7 +130,7 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
         return;
       }
 
-      const newData = { ...data };
+      const newData: FormData = { ...data };
       const flags: AutoFlags = {};
       if (typeof ext.duration === "number") { newData.duration = Math.round(ext.duration * 100) / 100; flags.duration = true; }
       if (typeof ext.distance === "number") { newData.distance = Math.round(ext.distance * 100) / 100; flags.distance = true; }
@@ -180,7 +180,7 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
     }
   };
 
-  const updateField = (field: keyof AutoFlags, value: number | string) => {
+  const updateField = (field: keyof AutoFlags, value: number | string | null) => {
     setData({ ...data, [field]: value });
     if (autoFlags[field]) setAutoFlags({ ...autoFlags, [field]: false });
   };

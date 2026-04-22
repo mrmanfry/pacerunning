@@ -848,7 +848,7 @@ export function generatePlan(profile: Profile): Plan {
             "Idratati regolarmente se hai la bottiglia",
             "Se serve camminare brevi tratti, va bene",
           ];
-    const rationaleKey: SessionLibraryKey =
+    const rationaleKey: SessionRationaleKind =
       kind === "intensity" ? "longIntensity" : kind === "build" ? "longBuild" : "longBase";
     return {
       name,
@@ -897,6 +897,20 @@ export function generatePlan(profile: Profile): Plan {
     rationale: buildSessionRationale("easyShorter", sessionCtx),
   };
 
+  const qualityMediumHigh: Session = {
+    name: "Intensità medio-alta",
+    type: "quality",
+    duration: 44,
+    targetHR: `${z4[0]}-${z4[1]}`,
+    blocks: [
+      "10' di riscaldamento progressivo",
+      `3 blocchi di 8' a intensità medio-alta (indicativamente ${z4[0]}-${z4[1]} bpm)`,
+      "3' di corsa lenta di recupero tra i blocchi",
+      "10' di defaticamento lento",
+    ],
+    notes: "Lo sforzo percepito di riferimento per questo tipo di lavoro, secondo la letteratura amatoriale, è intorno a 7/10: impegnativo ma non massimale.",
+    rationale: buildSessionRationale("qualityMediumHigh", sessionCtx),
+  };
   const qualityShortReps: Session = {
     name: "Ripetute brevi",
     type: "quality",

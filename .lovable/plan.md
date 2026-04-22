@@ -1,72 +1,71 @@
 
 
-# Due problemi separati, due fix distinti
+# Piano rivisto — 3 fix UI + prompt, con i ritocchi che hai chiesto
 
-## Problema 1 — "Errore upload, riprova più tardi"
+## Fix #1 — Mostra segments, splits e curva FC in `AnalysisScreen`
 
-### Cosa è successo davvero
+I dati ci sono già in `extractedWorkout` (13 segments, 7 kmSplits, hrSeries, segmentReadings). Li renderizziamo.
 
-Dal session replay: hai caricato `IMG_9192.PNG` (estensione **maiuscola**) e dopo ~10ms è apparso il toast "Errore upload, riprova più tardi". Quel toast viene SOLO dal `catch` generico in `LogWorkout.tsx` riga 177 — quindi qualcosa ha throwato prima ancora che l'estrazione partisse, probabilmente nell'upload allo storage.
+**Cosa renderizziamo, e come decidiamo cosa è "interessante":**
 
-I log Postgres e i log edge function di `extract-workout-data` sono **vuoti** per quella finestra → la chiamata non è nemmeno arrivata al server. È fallito l'upload su `workout-screenshots`. Le cause più probabili, in ordine:
+- **`<SegmentTimeline>`**: mostriamo SOLO segmenti di tipo `interval` e `recovery`. Filtriamo via `warmup` / `cooldown` / `other` / `steady` perché ingombrano e raramente meritano un commento. Se restano > 6 segmenti totali, mostriamo i primi 4 espansi e gli altri dentro un accordion `<Collapsible>` ("Mostra altre N ripetute").
+- **`segmentReadings`**: aggiunti sotto la barra del segmento solo per gli `interval` filtrati. Se l'AI ha scritto un reading per un `recovery`, lo ignoriamo in UI (resta in DB).
+- **Tabella `kmSplits`**: nuova sezione "PARZIALI PER KM" sotto la timeline, una riga per km con `pace` e `hrAvg`. Compatta, mono-font, stile coerente.
+- **`<HrSparkline>`**: già esistente, lo montiamo se `hrSeries.points.length >= 6`.
 
-1. **MIME type non riconosciuto**: il file è `IMG_9192.PNG` (estensione maiuscola). Il browser su iOS/desktop a volte invia `file.type` vuoto per `.PNG` maiuscolo, e Supabase Storage rifiuta upload senza contentType valido con un errore generico.
-2. **Rete instabile / timeout** durante l'upload concorrente di 3 file da diversi MB.
-3. **File troppo grande**: già controllato a 8MB, quindi escluso.
+**Verifica `<SegmentTimeline>` come hai chiesto:** il componente esiste in `src/components/pace/SegmentTimeline.tsx` (l'ho letto: 90 righe, completo, gestisce KIND_LABEL, KIND_COLOR, fmtDuration, fmtPace, accetta `segments` + `segmentReadings` opzionali, già renderizza la barra proporzionale + reading sotto). Non è uno scheletro — è funzionante. **Ma non è mai stato montato in nessun render** finora (cerca usages: zero match). Quindi questo fix è la sua prima istanza in produzione: aspettati di dover sistemare 1-2 dettagli di styling al primo passaggio in default mode, ma non riscritture.
 
-### Cosa fixiamo
+## Fix #2 — `SessionDetail` per sessioni passate: solo lettura, niente prescrizione
 
-`src/lib/pace-repository.ts` — `uploadWorkoutScreenshot()`:
-- Forziamo l'estensione **lowercase** prima di costruire il path (`.PNG` → `.png`).
-- Se `file.type` è vuoto o non inizia con `image/`, **deduciamo il MIME dall'estensione** (`png` → `image/png`, `jpg`/`jpeg` → `image/jpeg`, `webp` → `image/webp`, `heic` → `image/heic`).
-- Wrappiamo l'errore Supabase con un messaggio più utile (status code + message) invece di throware l'oggetto raw.
+Recepisco la tua decisione finale: **niente `nextMove` nelle sessioni passate**. Solo `technicalReading` + `sessionHighlight`.
 
-`src/components/pace/LogWorkout.tsx` — `handleScreenshot()`:
-- Nel `catch` mostriamo il **messaggio reale dell'errore** invece di "Riprova più tardi" generico, così la prossima volta vediamo subito se è MIME, rete o storage policy.
-- Toast più chiaro: "Upload fallito: <messaggio>".
+In `SessionDetail`, sezione "QUESTA SESSIONE / STORICO COACH":
+- Mostriamo **`technicalReading`** (header: "LETTURA TECNICA") + **`sessionHighlight`** (header: "HIGHLIGHT").
+- **Rimuoviamo del tutto la riga `nextMove`** dal render delle analisi storiche. Resta in DB (`workout_analyses.next_move`) per uso futuro ma non viene mai mostrato qui.
+- Aggiungiamo sotto la `<SegmentTimeline>` filtrata come al Fix #1, con i `segment_readings` salvati su `workout_analyses` per quel log.
 
-Niente nuove tabelle, niente nuove policy. La policy storage esiste già ed è corretta (`{userId}/{file}` con `auth.uid() = foldername[1]`).
+`nextMove` resta visibile **solo nella Dashboard** come "prossimo passo attivo" (lì è coerente: è il consiglio per la prossima sessione da fare). E in `AnalysisScreen` subito dopo il salvataggio (lì il consiglio operativo è ancora "fresco").
 
-## Problema 2 — "Il dashboard mi propone la lunga, io voglio fare la ripetute"
+## Fix #3 — Coach: leggi per blocchi quando ci sono ≥2 `interval`, indipendentemente dal type
 
-### Come funziona oggi
+In `supabase/functions/analyze-workout/index.ts`:
 
-`findNextSession()` in `pace-engine.ts:815` scorre le settimane e le sessioni **in ordine** e restituisce la **prima non loggata**. Se la tua settimana 1 ha l'ordine `[lunga, ripetute, easy]`, ti propone la lunga.
+- **`PROMPT_VERSION`** → `v6-2026-04-22-segments-typeagnostic`. (Già salvato per record su `workout_analyses.prompt_version` — verificato dallo schema. Il "buco architetturale" del logging prompt che hai citato in realtà è chiuso lato persistenza; quello che manca è uno storico versionato dei testi, ma è scope futuro, non lo apro adesso.)
+- Modifica al blocco `<plan_vs_execution>`: trigger su **"≥2 segments di tipo `interval` nei dati ricevuti"**, non su `currentPlanned.type === "quality"`.
+- Nuova regola esplicita: se `currentPlanned.type` ∈ `{easy, long, medium}` ma trovi `≥2 interval`, scrivi in `technicalReading`: *"Il piano oggi prevedeva [tipo], ma negli screenshot vedo N ripetute strutturate — hai eseguito una sessione diversa da quella pianificata."*
+- Popola `segmentReadings` con un commento per ogni `interval` (l'UI poi filtra/collassa, ma il coach scrive su tutti).
 
-**Però — buona notizia — non sei costretto a seguirlo.** Il `Dashboard` mostra anche la lista completa delle sessioni della settimana (sezione `plan.weeks[w].sessions` cliccabili). Se clicchi sulla "ripetute" lì, si apre il `SessionDetail` di quella sessione e quando logghi l'allenamento viene salvato con `weekIdx + sessionIdx` corretti. Il sistema accetta sessioni in qualsiasi ordine. La "next" è solo un suggerimento, non un vincolo.
+**Sul tuo punto opzionale "spostare il commento nella slot di quality della settimana":** non lo faccio in questa iterazione. Comporta logica di "rebinding" del log a un'altra session_idx, che è esattamente il tipo di magia silenziosa che rompe la fiducia dell'utente sul "dove finiscono i miei dati". Resta come idea per uno sprint futuro dedicato al "session reassignment".
 
-### Cosa cambia per il tuo caso
+## Cosa NON tocchiamo (confermato)
 
-**Niente codice da cambiare per farlo funzionare** — già funziona così. Quello che cambiamo è la **comunicazione**: oggi la card "Prossima sessione" sembra dire "DEVI fare questa", e la lista settimanale sotto sembra solo informativa.
-
-`src/components/pace/Dashboard.tsx`:
-- Sopra la card "PROSSIMA SESSIONE" cambiamo il microcopy: invece di **"PROSSIMA SESSIONE"** scriviamo **"SUGGERITA OGGI"** + sottotitolo *"Puoi fare un'altra sessione della settimana — clicca qui sotto per scegliere."*
-- Nella lista settimanale, evidenziamo visivamente che le sessioni sono **tutte** loggabili (badge "DISPONIBILE" sulle non completate, non solo sulla "next").
-- Quando clicchi una sessione che NON è la "next" suggerita, il `SessionDetail` mostra un piccolo banner *"Stai per loggare la {nome}. La sessione suggerita era {altra}, ma puoi farla quando vuoi."* — niente blocchi, solo trasparenza.
-
-`src/lib/pace-engine.ts` — `findNextSession()`:
-- Nessun cambio di logica. Resta "prima non loggata" come default.
+- Estrazione `extract-workout-data`: invariata, funziona.
+- Schema DB: nessuna migrazione.
+- Chip "INTENSITÀ: media" sopra la lettura tecnica: lo lascio per ora — è un fix di coerenza minore che tratterei in un giro dedicato sul label deterministico (calcolato da `computeMetrics`), insieme ad altri micro-fix di copy. Non vale aprirlo qui dentro.
+- `findNextSession`: invariata.
+- Modelli AI: invariati.
 
 ## File toccati
 
 ```text
-src/lib/pace-repository.ts
-  - uploadWorkoutScreenshot(): lowercase ext, MIME inference fallback,
-    errore propagato con messaggio leggibile
-
-src/components/pace/LogWorkout.tsx
-  - catch dell'upload: toast con messaggio reale invece di
-    "Riprova più tardi" generico
-
-src/components/pace/Dashboard.tsx
-  - relabeling "PROSSIMA SESSIONE" → "SUGGERITA OGGI" + sottotitolo
-  - lista sessioni settimana con badge "DISPONIBILE" sulle non completate
+src/components/pace/AnalysisScreen.tsx
+  - render <SegmentTimeline> filtrata (solo interval + recovery, accordion >6)
+  - render <HrSparkline> se hrSeries.points >= 6
+  - tabella PARZIALI PER KM da kmSplits
 
 src/components/pace/SessionDetail.tsx
-  - banner informativo se l'utente apre una sessione diversa dalla
-    "next" suggerita (zero blocchi, solo nota)
+  - storico coach: solo technicalReading + sessionHighlight
+  - rimosso render di nextMove dalle sessioni passate
+  - <SegmentTimeline> filtrata anche qui per le sessioni completate
 
-NIENTE migrazioni DB. NIENTE modifiche a policy storage. NIENTE modifiche a edge functions.
+supabase/functions/analyze-workout/index.ts
+  - PROMPT_VERSION → v6-2026-04-22-segments-typeagnostic
+  - <plan_vs_execution>: trigger su ≥2 interval, non su type=quality
+  - regola: se type pianificato ≠ esecuzione (interval rilevati su slot easy/long/medium),
+    dichiaralo esplicitamente in technicalReading
+  - popola segmentReadings su tutti gli interval
+
+NIENTE migrazioni DB. NIENTE modifiche a extract-workout-data. NIENTE rebinding di session_idx.
 ```
 
 ## Domande aperte

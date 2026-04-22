@@ -210,7 +210,10 @@ export function Dashboard({
 
       {nextSession && (
         <div className="p-6 pt-2">
-          <div className="mono-font text-xs tracking-widest text-stone-500 mb-3">▼ PROSSIMO SPUNTO</div>
+          <div className="mono-font text-xs tracking-widest text-stone-500 mb-1">▼ SUGGERITA OGGI</div>
+          <div className="text-xs text-stone-500 mb-3 leading-relaxed">
+            È solo un suggerimento. Puoi fare un'altra sessione della settimana — clicca qui sotto per scegliere.
+          </div>
           <button
             onClick={() => onOpenSession(nextSession)}
             className="w-full text-left bg-ink text-paper rounded-3xl p-6 relative overflow-hidden hover:bg-ink-soft transition-all active:scale-[0.99]"
@@ -307,6 +310,13 @@ export function Dashboard({
                           {skipped ? "saltato" : `${s.duration} min · ${s.type}`}
                         </div>
                       </div>
+                      {!done && !skipped && (
+                        <span className={`mono-font text-[9px] tracking-wider px-2 py-0.5 rounded-full flex-shrink-0 ${
+                          isNext ? "bg-ink text-paper" : "bg-lime-100 text-lime-800 border border-lime-300"
+                        }`}>
+                          {isNext ? "SUGGERITA" : "DISPONIBILE"}
+                        </span>
+                      )}
                       <ChevronRight size={16} className="text-stone-400 flex-shrink-0" />
                     </button>
                   );

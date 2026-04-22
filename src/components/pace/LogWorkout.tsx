@@ -174,7 +174,12 @@ export function LogWorkout({ session, userId, onBack, onSave }: Props) {
     } catch (err) {
       console.error(err);
       setExtractFailed(true);
-      toast({ title: "Errore upload", description: "Riprova più tardi.", variant: "destructive" });
+      const message = err instanceof Error ? err.message : String(err);
+      toast({
+        title: "Upload fallito",
+        description: message || "Errore sconosciuto. Riprova o inserisci a mano.",
+        variant: "destructive",
+      });
     } finally {
       setExtracting(false);
     }

@@ -56,6 +56,65 @@ export interface Profile {
   level: Level;
   raceDistance: number;    // km, default 10
   hrRest?: number | null;  // bpm, optional, defaults to 60 in calculations
+  /** Volume settimanale abituale in km. Se null, fallback derivato dal level. */
+  weeklyVolume?: number | null;
+  /** Lungo più lungo (in minuti) effettivamente fatto nelle ultime 4 settimane. */
+  recentLongRun?: number | null;
+  /** True se currentBest è stato stimato (utente non ricorda / non ha mai corso). */
+  currentBestEstimated?: boolean;
+}
+
+/**
+ * Stima conservativa del tempo su 10K se l'utente non lo conosce.
+ * Tabella ricavata da medie amatoriali (Strava/Garmin) per livello+volume.
+ * Output: minuti su 10K.
+ */
+export function estimateCurrentBestFromLevel(
+  level: Level,
+  weeklyVolume: number | null | undefined,
+  raceDistance: number = 10,
+): number {
+  const vol = weeklyVolume ?? 0;
+  // Tempi indicativi su 10K
+  let tenK: number;
+  if (level === "beginner") {
+    tenK = vol < 20 ? 65 : 58;
+  } else if (level === "intermediate") {
+    tenK = vol < 30 ? 52 : 48;
+  } else {
+    tenK = vol < 50 ? 44 : 40;
+  }
+  // Scala su distanza gara con Riegel (esponente 1.06)
+  if (raceDistance === 10 || !raceDistance) return tenK;
+  const scaled = tenK * Math.pow(raceDistance / 10, 1.06);
+  return Math.round(scaled);
+}
+
+/**
+ * Calcola la durata del lungo per la settimana corrente, ancorata al lungo
+ * recente dell'utente (se noto) e alla frazione di tempo gara stimata come
+ * tetto. Progressione lineare lungo le settimane disponibili.
+ */
+export function computeLongDuration(
+  weekIdx: number,
+  totalWeeks: number,
+  profile: Profile,
+): number {
+  const currentBest = Math.max(20, profile.currentBest || 60);
+  // Punto di partenza: lungo già fatto se noto, altrimenti 45% del current best
+  const startBase = profile.recentLongRun != null && profile.recentLongRun > 0
+    ? profile.recentLongRun
+    : currentBest * 0.45;
+  const start = Math.max(30, Math.min(120, startBase));
+  // Tetto: 75% del tempo gara, capped a 150', mai sotto 60'
+  const target = Math.max(60, Math.min(150, currentBest * 0.75));
+  // Se il punto di partenza è già più alto del tetto, manteniamo start (no regresso)
+  const top = Math.max(start, target);
+  // Progressione lineare
+  const denom = Math.max(1, totalWeeks - 1);
+  const progress = Math.min(1, Math.max(0, weekIdx / denom));
+  const duration = start + (top - start) * progress;
+  return Math.round(duration / 5) * 5; // arrotonda a 5'
 }
 
 export interface Session {

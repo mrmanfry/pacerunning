@@ -816,6 +816,10 @@ export function generatePlan(profile: Profile): Plan {
   const racePace = Math.round(hrMax * 0.88);
 
   // "Lungo lento" duration scales with race distance (capped 60-120').
+  // NOTA: nuova logica progressiva basata su currentBest + recentLongRun.
+  // Lasciamo qui un valore iniziale "neutro" che sarà sovrascritto per ogni
+  // settimana nel calendar walk (longBase/longBuild/longIntensity vengono
+  // ricostruiti con duration calcolata da computeLongDuration).
   const raceDist = profile.raceDistance || 10;
   const baseLong = Math.max(60, Math.min(120, Math.round(raceDist * 7)));
   const longDuration = baseLong;
@@ -826,6 +830,36 @@ export function generatePlan(profile: Profile): Plan {
   // Usa 0 settimane come default (per sessioni razionalizzate fuori dal loop calendar-aware).
   // Le Week useranno un contesto specifico più sotto che include weeksToRace corretto.
   const sessionCtx = buildRationaleContext(profile, 0, zones);
+
+  // Helper: costruisce un "lungo lento" per una specifica settimana usando
+  // la progressione ancorata al currentBest e al recentLongRun dell'utente.
+  function buildLong(name: string, weekIdx: number, totalWeeks: number, kind: "base" | "build" | "intensity"): Session {
+    const dur = computeLongDuration(weekIdx, totalWeeks, profile);
+    const blocks =
+      kind === "intensity"
+        ? [
+            `Circa ${dur}' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
+            "Possibile inserire 5' di ritmo medio verso metà percorso se le gambe rispondono bene",
+          ]
+        : kind === "build"
+        ? [`Circa ${dur}' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`, "Porta acqua se fa caldo"]
+        : [
+            `Circa ${dur}' di corsa continua a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
+            "Idratati regolarmente se hai la bottiglia",
+            "Se serve camminare brevi tratti, va bene",
+          ];
+    const rationaleKey: SessionLibraryKey =
+      kind === "intensity" ? "longIntensity" : kind === "build" ? "longBuild" : "longBase";
+    return {
+      name,
+      type: "long",
+      duration: dur,
+      targetHR: `${z2[0]}-${z2[1] + 5}`,
+      blocks,
+      notes: kind === "base" ? "Il lungo lento è uno degli allenamenti più citati nella letteratura amatoriale per gare di resistenza." : undefined,
+      rationale: buildSessionRationale(rationaleKey, sessionCtx),
+    };
+  }
 
   // ---------- Session library (poi le selezioniamo per settimana) ----------
   const easyShort: Session = {
@@ -861,21 +895,6 @@ export function generatePlan(profile: Profile): Plan {
     targetHR: `${z2[0]}-${z2[1]}`,
     blocks: [`40' continui a intensità leggera (${z2[0]}-${z2[1]} bpm)`],
     rationale: buildSessionRationale("easyShorter", sessionCtx),
-  };
-
-  const qualityMediumHigh: Session = {
-    name: "Intensità medio-alta",
-    type: "quality",
-    duration: 44,
-    targetHR: `${z4[0]}-${z4[1]}`,
-    blocks: [
-      "10' di riscaldamento progressivo",
-      `3 blocchi di 8' a intensità medio-alta (indicativamente ${z4[0]}-${z4[1]} bpm)`,
-      "3' di corsa lenta di recupero tra i blocchi",
-      "10' di defaticamento lento",
-    ],
-    notes: "Lo sforzo percepito di riferimento per questo tipo di lavoro, secondo la letteratura amatoriale, è intorno a 7/10: impegnativo ma non massimale.",
-    rationale: buildSessionRationale("qualityMediumHigh", sessionCtx),
   };
 
   const qualityShortReps: Session = {

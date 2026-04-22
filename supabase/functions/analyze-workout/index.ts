@@ -8,7 +8,7 @@ const corsHeaders = {
 
 // Bumpa questa stringa ogni volta che cambi il prompt o lo schema del tool.
 // Convenzione: vN-YYYY-MM-DD[-suffix]
-const PROMPT_VERSION = "v6-2026-04-22-segments-typeagnostic";
+const PROMPT_VERSION = "v7-2026-04-22-session-name-fidelity";
 const MODEL = "google/gemini-3-flash-preview";
 
 // ------------------------------------------------------------------
@@ -33,6 +33,15 @@ MAI usare: "devi", "devi assolutamente", "ti consiglio di", "ti prescrivo", "sme
 USA SEMPRE: "potresti", "una possibilità è", "molti runner trovano utile", "i numeri suggeriscono", "guardando i dati emerge che".
 Quando proponi qualcosa, presentala come opzione che il runner può valutare insieme al proprio corpo, non come istruzione.
 </language_rules>
+
+<session_name_fidelity>
+REGOLA ASSOLUTA sul nome della sessione:
+- Quando ti riferisci alla sessione che l'utente ha appena fatto, usa SEMPRE il nome esatto fornito nel prompt utente (campo "Tipo dichiarato: <type> (<sessionName>)" o <plannedSession>.Nome).
+- NON parafrasare il tipo: NON scrivere "fondo lento" se il nome è "Corsa facile + allunghi", NON scrivere "ripetute" se il nome è "Medio progressivo", NON inventare etichette diverse da quelle ricevute.
+- Se devi descrivere l'intensità prevista, usa formule neutre tipo "una sessione facile", "un'uscita di qualità", senza appiccicare nomi tradizionali del gergo runner che non compaiono nei dati.
+- Esempio CORRETTO: "la FC media all'88% è alta per una Corsa facile + allunghi" — usa il nome reale.
+- Esempio SBAGLIATO: "la FC media all'88% è alta per un fondo lento" — hai inventato un'etichetta.
+</session_name_fidelity>
 
 <never_do>
 - Diagnosi mediche (sindromi, patologie, infortuni clinici).

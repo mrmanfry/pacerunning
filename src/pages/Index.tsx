@@ -118,10 +118,14 @@ const Index = () => {
         setConsentsAccepted(okConsents);
         if (p) setProfile(p);
         if (pl) {
-          // Migration on-the-fly: se il piano è stato salvato prima
-          // dell'introduzione del rationale, lo rigeneriamo mantenendo
-          // la stima aggiornata già calcolata.
-          if (!pl.philosophy && p) {
+          // Migration on-the-fly: rigeneriamo il piano se:
+          // - è stato salvato prima dell'introduzione del rationale (no philosophy), OPPURE
+          // - contiene la firma del vecchio bug "lungo statico a 120'" (longBuild duration costante).
+          //   Cap. nuovo modello: lungo progressivo ancorato a currentBest/recentLongRun.
+          const hasStaleLong = pl.weeks.some((w) =>
+            w.sessions.some((s) => s.type === "long" && s.duration === 120),
+          );
+          if ((!pl.philosophy || hasStaleLong) && p) {
             const regenerated = generatePlan(p);
             const migrated: Plan = {
               ...regenerated,

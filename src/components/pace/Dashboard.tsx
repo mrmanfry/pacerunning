@@ -256,6 +256,15 @@ export function Dashboard({
       )}
 
       <div className="p-6 pt-2">
+        {profile.currentBestEstimated && (
+          <div className="mb-4 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3">
+            <Info size={18} className="text-amber-700 flex-shrink-0 mt-0.5" />
+            <div className="text-xs text-amber-900 leading-relaxed">
+              <strong>Il piano è basato su una stima del tuo livello attuale.</strong>{" "}
+              Dopo le prime 2-3 sessioni reali potrai aggiornare i tuoi dati nelle impostazioni — i pace target diventeranno più precisi.
+            </div>
+          </div>
+        )}
         {plan.philosophy && (
           <div className="mb-4">
             <RationaleBlock variant="plan" data={plan.philosophy} />

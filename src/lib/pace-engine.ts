@@ -56,6 +56,65 @@ export interface Profile {
   level: Level;
   raceDistance: number;    // km, default 10
   hrRest?: number | null;  // bpm, optional, defaults to 60 in calculations
+  /** Volume settimanale abituale in km. Se null, fallback derivato dal level. */
+  weeklyVolume?: number | null;
+  /** Lungo più lungo (in minuti) effettivamente fatto nelle ultime 4 settimane. */
+  recentLongRun?: number | null;
+  /** True se currentBest è stato stimato (utente non ricorda / non ha mai corso). */
+  currentBestEstimated?: boolean;
+}
+
+/**
+ * Stima conservativa del tempo su 10K se l'utente non lo conosce.
+ * Tabella ricavata da medie amatoriali (Strava/Garmin) per livello+volume.
+ * Output: minuti su 10K.
+ */
+export function estimateCurrentBestFromLevel(
+  level: Level,
+  weeklyVolume: number | null | undefined,
+  raceDistance: number = 10,
+): number {
+  const vol = weeklyVolume ?? 0;
+  // Tempi indicativi su 10K
+  let tenK: number;
+  if (level === "beginner") {
+    tenK = vol < 20 ? 65 : 58;
+  } else if (level === "intermediate") {
+    tenK = vol < 30 ? 52 : 48;
+  } else {
+    tenK = vol < 50 ? 44 : 40;
+  }
+  // Scala su distanza gara con Riegel (esponente 1.06)
+  if (raceDistance === 10 || !raceDistance) return tenK;
+  const scaled = tenK * Math.pow(raceDistance / 10, 1.06);
+  return Math.round(scaled);
+}
+
+/**
+ * Calcola la durata del lungo per la settimana corrente, ancorata al lungo
+ * recente dell'utente (se noto) e alla frazione di tempo gara stimata come
+ * tetto. Progressione lineare lungo le settimane disponibili.
+ */
+export function computeLongDuration(
+  weekIdx: number,
+  totalWeeks: number,
+  profile: Profile,
+): number {
+  const currentBest = Math.max(20, profile.currentBest || 60);
+  // Punto di partenza: lungo già fatto se noto, altrimenti 45% del current best
+  const startBase = profile.recentLongRun != null && profile.recentLongRun > 0
+    ? profile.recentLongRun
+    : currentBest * 0.45;
+  const start = Math.max(30, Math.min(120, startBase));
+  // Tetto: 75% del tempo gara, capped a 150', mai sotto 60'
+  const target = Math.max(60, Math.min(150, currentBest * 0.75));
+  // Se il punto di partenza è già più alto del tetto, manteniamo start (no regresso)
+  const top = Math.max(start, target);
+  // Progressione lineare
+  const denom = Math.max(1, totalWeeks - 1);
+  const progress = Math.min(1, Math.max(0, weekIdx / denom));
+  const duration = start + (top - start) * progress;
+  return Math.round(duration / 5) * 5; // arrotonda a 5'
 }
 
 export interface Session {
@@ -757,6 +816,10 @@ export function generatePlan(profile: Profile): Plan {
   const racePace = Math.round(hrMax * 0.88);
 
   // "Lungo lento" duration scales with race distance (capped 60-120').
+  // NOTA: nuova logica progressiva basata su currentBest + recentLongRun.
+  // Lasciamo qui un valore iniziale "neutro" che sarà sovrascritto per ogni
+  // settimana nel calendar walk (longBase/longBuild/longIntensity vengono
+  // ricostruiti con duration calcolata da computeLongDuration).
   const raceDist = profile.raceDistance || 10;
   const baseLong = Math.max(60, Math.min(120, Math.round(raceDist * 7)));
   const longDuration = baseLong;
@@ -767,6 +830,36 @@ export function generatePlan(profile: Profile): Plan {
   // Usa 0 settimane come default (per sessioni razionalizzate fuori dal loop calendar-aware).
   // Le Week useranno un contesto specifico più sotto che include weeksToRace corretto.
   const sessionCtx = buildRationaleContext(profile, 0, zones);
+
+  // Helper: costruisce un "lungo lento" per una specifica settimana usando
+  // la progressione ancorata al currentBest e al recentLongRun dell'utente.
+  function buildLong(name: string, weekIdx: number, totalWeeks: number, kind: "base" | "build" | "intensity"): Session {
+    const dur = computeLongDuration(weekIdx, totalWeeks, profile);
+    const blocks =
+      kind === "intensity"
+        ? [
+            `Circa ${dur}' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
+            "Possibile inserire 5' di ritmo medio verso metà percorso se le gambe rispondono bene",
+          ]
+        : kind === "build"
+        ? [`Circa ${dur}' a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`, "Porta acqua se fa caldo"]
+        : [
+            `Circa ${dur}' di corsa continua a intensità leggera (${z2[0]}-${z2[1] + 5} bpm)`,
+            "Idratati regolarmente se hai la bottiglia",
+            "Se serve camminare brevi tratti, va bene",
+          ];
+    const rationaleKey: SessionRationaleKind =
+      kind === "intensity" ? "longIntensity" : kind === "build" ? "longBuild" : "longBase";
+    return {
+      name,
+      type: "long",
+      duration: dur,
+      targetHR: `${z2[0]}-${z2[1] + 5}`,
+      blocks,
+      notes: kind === "base" ? "Il lungo lento è uno degli allenamenti più citati nella letteratura amatoriale per gare di resistenza." : undefined,
+      rationale: buildSessionRationale(rationaleKey, sessionCtx),
+    };
+  }
 
   // ---------- Session library (poi le selezioniamo per settimana) ----------
   const easyShort: Session = {
@@ -818,7 +911,6 @@ export function generatePlan(profile: Profile): Plan {
     notes: "Lo sforzo percepito di riferimento per questo tipo di lavoro, secondo la letteratura amatoriale, è intorno a 7/10: impegnativo ma non massimale.",
     rationale: buildSessionRationale("qualityMediumHigh", sessionCtx),
   };
-
   const qualityShortReps: Session = {
     name: "Ripetute brevi",
     type: "quality",
@@ -954,9 +1046,18 @@ export function generatePlan(profile: Profile): Plan {
   // ---------- Selezione sessioni per template + numero target ----------
   // Ordine di priorità per template: la prima è la più caratterizzante.
   // Ne prendiamo `count` dall'inizio. Se count > base, aggiungiamo easy extra.
+  //
+  // Differenziato per distanza gara:
+  // - 10K (polarized): build mantiene mediumProgressive (poco volume serve)
+  // - 21K/42K (hybrid/pyramidal): in build mettiamo qualityMediumHigh (Z4 soglia)
+  //   in posizione 2, così le qualità entrano subito invece di aspettare
+  //   l'ultimo terzo del piano. Allinea il calendario alla PlanPhilosophy.
+  const isLongRace = raceDist >= 18; // HM o oltre
   const TEMPLATE_PRIORITY: Record<WeekTemplateKind, Session[]> = {
     base: [longBase, qualityMediumHigh, easyShort],
-    build: [longBuild, mediumProgressive, easyContinuous],
+    build: isLongRace
+      ? [longBuild, qualityMediumHigh, mediumContinuous, easyContinuous]
+      : [longBuild, mediumProgressive, easyContinuous],
     intensity: [qualityShortReps, longIntensity, mediumContinuous],
     specificity: [racePaceShort, mediumProgressionRace, easyShorter],
     taper: [], // gestito separatamente
@@ -972,9 +1073,14 @@ export function generatePlan(profile: Profile): Plan {
 
   function selectSessions(kind: WeekTemplateKind, count: number): Session[] {
     if (count <= 0) return [];
-    const priority = TEMPLATE_PRIORITY[kind];
+    let priority = TEMPLATE_PRIORITY[kind];
+    // Safety: per i principianti, sostituisci ripetute Z5 con soglia Z4.
+    // I beginner non fanno VO₂max massimale, lavorano sulla soglia.
+    if (profile.level === "beginner") {
+      priority = priority.map((s) => (s === qualityShortReps ? qualityMediumHigh : s));
+    }
     if (count <= priority.length) return priority.slice(0, count);
-    // count > 3: aggiungiamo sessioni easy extra (corsa facile breve)
+    // count > priority.length: aggiungiamo sessioni easy extra (corsa facile breve)
     const extra = count - priority.length;
     const out = [...priority];
     for (let i = 0; i < extra; i++) {
@@ -1082,6 +1188,22 @@ export function generatePlan(profile: Profile): Plan {
       sessions.push(raceDay);
     } else {
       sessions.push(...selectSessions(kind, targetCount));
+    }
+
+    // PROGRESSIONE LUNGO: sostituiamo qualunque long* con un long calcolato
+    // dinamicamente usando computeLongDuration ancorato al currentBest e al
+    // recentLongRun dell'utente. Indice 0 = prima settimana di training,
+    // l'ultima settimana di training è quella prima del taper.
+    if (!isRaceWeek) {
+      const trainingTotal = Math.max(1, numWeeks - 1); // escluso race week
+      const trainingIdx = wi; // wi 0..numWeeks-2 in training
+      const longKind: "base" | "build" | "intensity" =
+        kind === "intensity" || kind === "specificity" ? "intensity" : kind === "build" ? "build" : "base";
+      for (let si = 0; si < sessions.length; si++) {
+        if (sessions[si].type === "long") {
+          sessions[si] = buildLong("Lungo lento", trainingIdx, trainingTotal, longKind);
+        }
+      }
     }
 
     // Salta settimane completamente vuote (es. settimana corrente con 0 giorni utili

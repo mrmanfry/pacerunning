@@ -139,48 +139,57 @@ export type Database = {
           age: number
           created_at: string
           current_best: number
+          current_best_estimated: boolean
           days_until_race: number
           hr_rest: number | null
           id: string
           level: string
           race_date: string | null
           race_distance: number
+          recent_long_run: number | null
           sex: string
           target_time: number
           updated_at: string
           weekly_freq: number
+          weekly_volume: number | null
           weight: number
         }
         Insert: {
           age: number
           created_at?: string
           current_best: number
+          current_best_estimated?: boolean
           days_until_race: number
           hr_rest?: number | null
           id: string
           level: string
           race_date?: string | null
           race_distance?: number
+          recent_long_run?: number | null
           sex: string
           target_time: number
           updated_at?: string
           weekly_freq: number
+          weekly_volume?: number | null
           weight: number
         }
         Update: {
           age?: number
           created_at?: string
           current_best?: number
+          current_best_estimated?: boolean
           days_until_race?: number
           hr_rest?: number | null
           id?: string
           level?: string
           race_date?: string | null
           race_distance?: number
+          recent_long_run?: number | null
           sex?: string
           target_time?: number
           updated_at?: string
           weekly_freq?: number
+          weekly_volume?: number | null
           weight?: number
         }
         Relationships: []

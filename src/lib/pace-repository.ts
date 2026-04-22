@@ -58,6 +58,7 @@ export async function loadProfile(userId: string): Promise<Profile | null> {
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
+  const d: any = data;
   return {
     age: data.age,
     weight: data.weight,
@@ -66,10 +67,13 @@ export async function loadProfile(userId: string): Promise<Profile | null> {
     targetTime: data.target_time,
     weeklyFreq: data.weekly_freq,
     daysUntilRace: data.days_until_race,
-    raceDate: (data as any).race_date ?? null,
+    raceDate: d.race_date ?? null,
     level: data.level as Profile["level"],
-    raceDistance: (data as any).race_distance != null ? Number((data as any).race_distance) : 10,
-    hrRest: (data as any).hr_rest != null ? Number((data as any).hr_rest) : null,
+    raceDistance: d.race_distance != null ? Number(d.race_distance) : 10,
+    hrRest: d.hr_rest != null ? Number(d.hr_rest) : null,
+    weeklyVolume: d.weekly_volume != null ? Number(d.weekly_volume) : null,
+    recentLongRun: d.recent_long_run != null ? Number(d.recent_long_run) : null,
+    currentBestEstimated: d.current_best_estimated ?? false,
   };
 }
 
@@ -87,6 +91,9 @@ export async function saveProfile(userId: string, p: Profile) {
     level: p.level,
     race_distance: p.raceDistance ?? 10,
     hr_rest: p.hrRest ?? null,
+    weekly_volume: p.weeklyVolume ?? null,
+    recent_long_run: p.recentLongRun ?? null,
+    current_best_estimated: p.currentBestEstimated ?? false,
   };
   const { error } = await supabase.from("profiles").upsert(row, { onConflict: "id" });
   if (error) throw error;
